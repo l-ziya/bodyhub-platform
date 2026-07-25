@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/theme.dart';
 import 'firebase_options.dart';
 import 'features/splash/presentation/splash_screen.dart';
+import 'features/sports/presentation/sport_selection_screen.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();

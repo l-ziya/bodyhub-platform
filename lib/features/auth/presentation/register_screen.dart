@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/auth_provider.dart';
+import '../../sports/presentation/sport_selection_screen.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -86,7 +87,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         ),
       );
 
-      Navigator.pop(context);
+      Navigator.pushReplacement(
+  context,
+  MaterialPageRoute(
+    builder: (_) => const SportSelectionScreen(),
+  ),
+);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
