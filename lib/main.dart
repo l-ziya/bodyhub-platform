@@ -1,7 +1,7 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
+import 'core/theme.dart';
 import 'firebase_options.dart';
 import 'features/splash/presentation/splash_screen.dart';
 
@@ -27,10 +27,7 @@ class BodyHubApp extends StatelessWidget {
     return MaterialApp(
       title: 'BODY HUB',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorSchemeSeed: Colors.green,
-      ),
+      theme: AppTheme.lightTheme,
       home: const SplashScreen(),
     );
   }
