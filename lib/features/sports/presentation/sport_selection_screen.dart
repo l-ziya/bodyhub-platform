@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../providers/sport_provider.dart';
 
-class SportSelectionScreen extends StatefulWidget {
+class SportSelectionScreen extends ConsumerStatefulWidget {
   const SportSelectionScreen({super.key});
 
   @override
-  State<SportSelectionScreen> createState() =>
-      _SportSelectionScreenState();
+  ConsumerState<SportSelectionScreen> createState() =>
+    _SportSelectionScreenState();
 }
 
-class _SportSelectionScreenState extends State<SportSelectionScreen> {
+class _SportSelectionScreenState
+    extends ConsumerState<SportSelectionScreen> {
   String? selectedSport;
 
   Widget sportCard({
@@ -70,6 +73,7 @@ class _SportSelectionScreenState extends State<SportSelectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final sportsAsync = ref.watch(sportsProvider);
     return Scaffold(
       appBar: AppBar(
         title: const Text("Branş Seç"),
