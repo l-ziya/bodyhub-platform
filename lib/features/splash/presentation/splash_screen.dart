@@ -1,9 +1,47 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../auth/presentation/login_screen.dart';
+import '../../home/presentation/student_home_screen.dart';
 
-class SplashScreen extends StatelessWidget {
+class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen> {
+  @override
+  void initState() {
+    super.initState();
+    checkUser();
+  }
+
+  Future<void> checkUser() async {
+    // Splash ekranının biraz görünmesini sağlıyoruz.
+    await Future.delayed(const Duration(milliseconds: 800));
+
+    if (!mounted) return;
+
+    final user = FirebaseAuth.instance.currentUser;
+
+    if (user != null) {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const StudentHomeScreen(),
+        ),
+      );
+    } else {
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const LoginScreen(),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +56,9 @@ class SplashScreen extends StatelessWidget {
                 size: 90,
                 color: Colors.green,
               ),
+
               const SizedBox(height: 25),
+
               const Text(
                 "BODY HUB",
                 style: TextStyle(
@@ -26,7 +66,9 @@ class SplashScreen extends StatelessWidget {
                   fontWeight: FontWeight.bold,
                 ),
               ),
+
               const SizedBox(height: 10),
+
               const Text(
                 "Train Smarter. Perform Better.",
                 style: TextStyle(
@@ -34,22 +76,10 @@ class SplashScreen extends StatelessWidget {
                   color: Colors.grey,
                 ),
               ),
+
               const SizedBox(height: 40),
-              SizedBox(
-                width: 220,
-                height: 50,
-                child: ElevatedButton(
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const LoginScreen(),
-                      ),
-                    );
-                  },
-                  child: const Text("Giriş Yap"),
-                ),
-              ),
+
+              const CircularProgressIndicator(),
             ],
           ),
         ),
