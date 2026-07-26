@@ -10,6 +10,7 @@ class AuthRepository {
     required String phone,
     required String email,
     required String password,
+    required String gender,
   }) async {
     // Firebase Authentication
     final credential = await _auth.createUserWithEmailAndPassword(
@@ -24,6 +25,7 @@ class AuthRepository {
       'fullName': fullName,
       'phone': phone,
       'email': email,
+      'gender': gender,
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
     };

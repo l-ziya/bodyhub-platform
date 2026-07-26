@@ -6,6 +6,7 @@ import '../../../../core/theme/app_colors.dart';
 class WelcomeCard extends StatelessWidget {
   final String studentName;
   final String studentId;
+  final String gender;
   final VoidCallback onNutritionTap;
   final VoidCallback onExerciseTap;
   final String? subtitle;
@@ -14,6 +15,7 @@ class WelcomeCard extends StatelessWidget {
     super.key,
     required this.studentName,
     required this.studentId,
+    required this.gender,
     required this.onNutritionTap,
     required this.onExerciseTap,
     this.subtitle,
@@ -21,11 +23,18 @@ class WelcomeCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isFemale = gender.trim().toLowerCase() == 'female';
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
-        gradient: AppColors.primaryGradient,
+        gradient: isFemale
+            ? const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [Color(0xFFB84E75), Color(0xFFE195AC)],
+              )
+            : AppColors.primaryGradient,
         borderRadius: BorderRadius.circular(28),
         boxShadow: const [
           BoxShadow(

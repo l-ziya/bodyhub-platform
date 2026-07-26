@@ -783,6 +783,7 @@ class _DashboardContent extends StatelessWidget {
           WelcomeCard(
             studentName: firstName,
             studentId: dashboard.studentId,
+            gender: dashboard.gender,
             onNutritionTap: () => Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => NutritionScreen(studentId: dashboard.studentId),

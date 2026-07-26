@@ -3,6 +3,7 @@ class StudentProfileModel {
   final String fullName;
   final String phone;
   final String email;
+  final String gender;
   final String sportId;
   final String packageId;
   final String status;
@@ -12,6 +13,7 @@ class StudentProfileModel {
     required this.fullName,
     required this.phone,
     required this.email,
+    required this.gender,
     required this.sportId,
     required this.packageId,
     required this.status,
@@ -26,6 +28,7 @@ class StudentProfileModel {
       fullName: data['fullName'] ?? '',
       phone: data['phone'] ?? '',
       email: data['email'] ?? '',
+      gender: data['gender'] ?? '',
       sportId: data['sportId'] ?? '',
       packageId: data['packageId'] ?? '',
       status: data['status'] ?? '',
@@ -37,6 +40,7 @@ class StudentProfileModel {
       'fullName': fullName,
       'phone': phone,
       'email': email,
+      'gender': gender,
       'sportId': sportId,
       'packageId': packageId,
       'status': status,

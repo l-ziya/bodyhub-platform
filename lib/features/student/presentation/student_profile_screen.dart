@@ -28,6 +28,7 @@ class StudentProfileScreen extends ConsumerWidget {
       profile?.phone ?? user?.phoneNumber,
       'Telefon bilgisi eklenmedi',
     );
+    final gender = _genderLabel(profile?.gender ?? dashboard.gender);
 
     return Scaffold(
       backgroundColor: AppColors.background,
@@ -74,6 +75,12 @@ class StudentProfileScreen extends ConsumerWidget {
                 icon: Icons.phone_outlined,
                 title: 'Telefon',
                 value: phone,
+              ),
+              const _CardDivider(),
+              _ProfileInfoRow(
+                icon: Icons.wc_rounded,
+                title: 'Cinsiyet',
+                value: gender,
               ),
             ],
           ),
@@ -174,6 +181,13 @@ class StudentProfileScreen extends ConsumerWidget {
     final trimmedValue = value?.trim() ?? '';
     return trimmedValue.isEmpty ? fallback : trimmedValue;
   }
+
+  static String _genderLabel(String value) => switch (value) {
+    'female' => 'Kadın',
+    'male' => 'Erkek',
+    'unspecified' => 'Belirtmek istemiyorum',
+    _ => 'Belirtilmedi',
+  };
 
   static IconData _getSportIcon(String sportName) {
     final normalizedSport = sportName.toLowerCase();

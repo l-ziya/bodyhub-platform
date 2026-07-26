@@ -23,6 +23,7 @@ class _StudentEditProfileScreenState
   late final TextEditingController _nameController;
   late final TextEditingController _phoneController;
   late final TextEditingController _emailController;
+  late String _gender;
 
   bool _saving = false;
 
@@ -42,6 +43,7 @@ class _StudentEditProfileScreenState
     _emailController = TextEditingController(
       text: profile?.email ?? user?.email ?? '',
     );
+    _gender = profile?.gender ?? widget.dashboard.gender;
   }
 
   @override
@@ -68,6 +70,7 @@ class _StudentEditProfileScreenState
             fullName: _nameController.text.trim(),
             phone: _phoneController.text.trim(),
             email: _emailController.text.trim(),
+            gender: _gender,
           );
 
       ref.invalidate(currentStudentProvider);
@@ -108,6 +111,24 @@ class _StudentEditProfileScreenState
               validator: (v) => v == null || !v.contains('@')
                   ? 'Geçerli e-posta girin'
                   : null,
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              initialValue: _gender.isEmpty ? null : _gender,
+              decoration: const InputDecoration(
+                labelText: 'Cinsiyet',
+                prefixIcon: Icon(Icons.person_outline_rounded),
+              ),
+              hint: const Text('Seçim yapın'),
+              items: const [
+                DropdownMenuItem(value: 'female', child: Text('Kadın')),
+                DropdownMenuItem(value: 'male', child: Text('Erkek')),
+                DropdownMenuItem(
+                  value: 'unspecified',
+                  child: Text('Belirtmek istemiyorum'),
+                ),
+              ],
+              onChanged: (value) => setState(() => _gender = value ?? ''),
             ),
             const SizedBox(height: 32),
             SizedBox(

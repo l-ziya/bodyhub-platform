@@ -36,7 +36,7 @@ service cloud.firestore {
       allow update: if isCoach() || (
         isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['fullName', 'phone', 'email', 'updatedAt'])
+          .hasOnly(['fullName', 'phone', 'email', 'gender', 'updatedAt'])
       );
       allow delete: if isCoach();
     }
@@ -48,7 +48,7 @@ service cloud.firestore {
       allow update: if isCoach() || (
         isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['fullName', 'phone', 'email', 'sportsHistory', 'goals', 'updatedAt'])
+          .hasOnly(['fullName', 'phone', 'email', 'gender', 'sportsHistory', 'goals', 'updatedAt'])
       );
       allow delete: if isCoach();
     }

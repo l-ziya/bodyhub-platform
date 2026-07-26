@@ -3,9 +3,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/student_dashboard_model.dart';
 
 class DashboardRepository {
-  DashboardRepository({
-    FirebaseFirestore? firestore,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+  DashboardRepository({FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
 
@@ -33,9 +32,7 @@ class DashboardRepository {
     return _firestore.collection('lessons');
   }
 
-  Future<StudentDashboardModel> getStudentDashboard(
-    String studentId,
-  ) async {
+  Future<StudentDashboardModel> getStudentDashboard(String studentId) async {
     /*
      * İsim student_profiles belgesinden bağımsız olarak
      * users koleksiyonundan okunur.
@@ -55,6 +52,7 @@ class DashboardRepository {
       return StudentDashboardModel(
         studentId: studentId,
         fullName: fullName,
+        gender: '',
         sportName: 'Branş seçilmedi',
         packageName: 'Paket seçilmedi',
         totalLessons: 0,
@@ -66,8 +64,7 @@ class DashboardRepository {
       );
     }
 
-    final profileData =
-        profileDocument.data() ?? const <String, dynamic>{};
+    final profileData = profileDocument.data() ?? const <String, dynamic>{};
 
     /*
      * Profil belgesinde isim varsa öncelikli olarak onu,
@@ -78,42 +75,30 @@ class DashboardRepository {
       profileData: profileData,
     );
 
-    final sportId = _readString(
-      profileData,
-      const [
-        'sportId',
-        'selectedSportId',
-        'branchId',
-      ],
-    );
+    final sportId = _readString(profileData, const [
+      'sportId',
+      'selectedSportId',
+      'branchId',
+    ]);
 
-    final profileSportName = _readString(
-      profileData,
-      const [
-        'sportName',
-        'selectedSportName',
-        'branchName',
-        'sport',
-        'branch',
-      ],
-    );
+    final profileSportName = _readString(profileData, const [
+      'sportName',
+      'selectedSportName',
+      'branchName',
+      'sport',
+      'branch',
+    ]);
 
-    final packageId = _readString(
-      profileData,
-      const [
-        'packageId',
-        'selectedPackageId',
-      ],
-    );
+    final packageId = _readString(profileData, const [
+      'packageId',
+      'selectedPackageId',
+    ]);
 
-    final profilePackageName = _readString(
-      profileData,
-      const [
-        'packageName',
-        'selectedPackageName',
-        'package',
-      ],
-    );
+    final profilePackageName = _readString(profileData, const [
+      'packageName',
+      'selectedPackageName',
+      'package',
+    ]);
 
     final sportName = await _getSportName(
       sportId: sportId,
@@ -126,13 +111,12 @@ class DashboardRepository {
       fallbackPackageName: profilePackageName,
     );
 
-    final nextLessonInformation = await _getNextLesson(
-      studentId,
-    );
+    final nextLessonInformation = await _getNextLesson(studentId);
 
     return StudentDashboardModel(
       studentId: studentId,
       fullName: resolvedFullName,
+      gender: _readString(profileData, const ['gender', 'cinsiyet']),
       sportName: sportName,
       packageName: packageInformation.packageName,
       totalLessons: packageInformation.totalLessons,
@@ -149,16 +133,13 @@ class DashboardRepository {
     required String studentId,
     required Map<String, dynamic> profileData,
   }) async {
-    final profileName = _readString(
-      profileData,
-      const [
-        'fullName',
-        'nameSurname',
-        'studentName',
-        'displayName',
-        'name',
-      ],
-    );
+    final profileName = _readString(profileData, const [
+      'fullName',
+      'nameSurname',
+      'studentName',
+      'displayName',
+      'name',
+    ]);
 
     if (profileName.isNotEmpty) {
       return profileName;
@@ -191,9 +172,7 @@ class DashboardRepository {
         .get();
 
     if (uidQuery.docs.isNotEmpty) {
-      final fullName = _readFullName(
-        uidQuery.docs.first.data(),
-      );
+      final fullName = _readFullName(uidQuery.docs.first.data());
 
       if (fullName.isNotEmpty) {
         return fullName;
@@ -206,9 +185,7 @@ class DashboardRepository {
         .get();
 
     if (userIdQuery.docs.isNotEmpty) {
-      final fullName = _readFullName(
-        userIdQuery.docs.first.data(),
-      );
+      final fullName = _readFullName(userIdQuery.docs.first.data());
 
       if (fullName.isNotEmpty) {
         return fullName;
@@ -219,35 +196,20 @@ class DashboardRepository {
   }
 
   String _readFullName(Map<String, dynamic> data) {
-    final fullName = _readString(
-      data,
-      const [
-        'fullName',
-        'nameSurname',
-        'studentName',
-        'displayName',
-      ],
-    );
+    final fullName = _readString(data, const [
+      'fullName',
+      'nameSurname',
+      'studentName',
+      'displayName',
+    ]);
 
     if (fullName.isNotEmpty) {
       return fullName;
     }
 
-    final firstName = _readString(
-      data,
-      const [
-        'firstName',
-        'name',
-      ],
-    );
+    final firstName = _readString(data, const ['firstName', 'name']);
 
-    final lastName = _readString(
-      data,
-      const [
-        'lastName',
-        'surname',
-      ],
-    );
+    final lastName = _readString(data, const ['lastName', 'surname']);
 
     return '$firstName $lastName'.trim();
   }
@@ -296,39 +258,27 @@ class DashboardRepository {
     required String fallbackName,
   }) async {
     if (sportId.isEmpty) {
-      return fallbackName.isEmpty
-          ? 'Branş seçilmedi'
-          : fallbackName;
+      return fallbackName.isEmpty ? 'Branş seçilmedi' : fallbackName;
     }
 
     final sportDocument = await _sports.doc(sportId).get();
 
     if (!sportDocument.exists) {
-      return fallbackName.isEmpty
-          ? 'Branş seçilmedi'
-          : fallbackName;
+      return fallbackName.isEmpty ? 'Branş seçilmedi' : fallbackName;
     }
 
     final data = sportDocument.data();
 
     if (data == null) {
-      return fallbackName.isEmpty
-          ? 'Branş seçilmedi'
-          : fallbackName;
+      return fallbackName.isEmpty ? 'Branş seçilmedi' : fallbackName;
     }
 
-    return _readString(
-      data,
-      const [
-        'name',
-        'sportName',
-        'title',
-        'branchName',
-      ],
-      fallback: fallbackName.isEmpty
-          ? 'Branş seçilmedi'
-          : fallbackName,
-    );
+    return _readString(data, const [
+      'name',
+      'sportName',
+      'title',
+      'branchName',
+    ], fallback: fallbackName.isEmpty ? 'Branş seçilmedi' : fallbackName);
   }
 
   Future<_PackageInformation> _getPackageInformation({
@@ -342,48 +292,32 @@ class DashboardRepository {
       final studentPackageData = studentPackage.data();
 
       if (studentPackageData != null) {
-        final studentPackageId = _readString(
-          studentPackageData,
-          const [
-            'packageId',
-            'selectedPackageId',
-          ],
-          fallback: profilePackageId,
-        );
+        final studentPackageId = _readString(studentPackageData, const [
+          'packageId',
+          'selectedPackageId',
+        ], fallback: profilePackageId);
 
         final packageNameFromStudentPackage = _readString(
           studentPackageData,
-          const [
-            'packageName',
-            'selectedPackageName',
-          ],
+          const ['packageName', 'selectedPackageName'],
           fallback: fallbackPackageName,
         );
 
-        final totalLessons = _readInt(
-          studentPackageData,
-          const [
-            'totalLessons',
-            'lessonCount',
-            'totalLessonCount',
-          ],
-        );
+        final totalLessons = _readInt(studentPackageData, const [
+          'totalLessons',
+          'lessonCount',
+          'totalLessonCount',
+        ]);
 
-        final usedLessons = _readInt(
-          studentPackageData,
-          const [
-            'usedLessons',
-            'usedLessonCount',
-            'completedLessons',
-          ],
-        );
+        final usedLessons = _readInt(studentPackageData, const [
+          'usedLessons',
+          'usedLessonCount',
+          'completedLessons',
+        ]);
 
         final storedRemainingLessons = _readNullableInt(
           studentPackageData,
-          const [
-            'remainingLessons',
-            'remainingLessonCount',
-          ],
+          const ['remainingLessons', 'remainingLessonCount'],
         );
 
         final packageName = await _getPackageName(
@@ -395,22 +329,18 @@ class DashboardRepository {
             ? totalLessons
             : await _getPackageTotalLessons(studentPackageId);
 
-        final calculatedRemaining =
-            (packageTotalLessons - usedLessons)
-                .clamp(0, packageTotalLessons)
-                .toInt();
+        final calculatedRemaining = (packageTotalLessons - usedLessons)
+            .clamp(0, packageTotalLessons)
+            .toInt();
 
         return _PackageInformation(
           packageName: packageName,
           totalLessons: packageTotalLessons,
           usedLessons: usedLessons,
-          remainingLessons:
-              storedRemainingLessons ?? calculatedRemaining,
-          paymentStatus: _readString(
-            studentPackageData,
-            const ['paymentStatus'],
-            fallback: 'Ödeme bilgisi yok',
-          ),
+          remainingLessons: storedRemainingLessons ?? calculatedRemaining,
+          paymentStatus: _readString(studentPackageData, const [
+            'paymentStatus',
+          ], fallback: 'Ödeme bilgisi yok'),
         );
       }
     }
@@ -420,9 +350,7 @@ class DashboardRepository {
       fallbackName: fallbackPackageName,
     );
 
-    final totalLessons = await _getPackageTotalLessons(
-      profilePackageId,
-    );
+    final totalLessons = await _getPackageTotalLessons(profilePackageId);
 
     return _PackageInformation(
       packageName: packageName,
@@ -477,38 +405,26 @@ class DashboardRepository {
     required String fallbackName,
   }) async {
     if (packageId.isEmpty) {
-      return fallbackName.isEmpty
-          ? 'Paket seçilmedi'
-          : fallbackName;
+      return fallbackName.isEmpty ? 'Paket seçilmedi' : fallbackName;
     }
 
     final packageDocument = await _packages.doc(packageId).get();
 
     if (!packageDocument.exists) {
-      return fallbackName.isEmpty
-          ? 'Paket seçilmedi'
-          : fallbackName;
+      return fallbackName.isEmpty ? 'Paket seçilmedi' : fallbackName;
     }
 
     final data = packageDocument.data();
 
     if (data == null) {
-      return fallbackName.isEmpty
-          ? 'Paket seçilmedi'
-          : fallbackName;
+      return fallbackName.isEmpty ? 'Paket seçilmedi' : fallbackName;
     }
 
-    return _readString(
-      data,
-      const [
-        'name',
-        'packageName',
-        'title',
-      ],
-      fallback: fallbackName.isEmpty
-          ? 'Paket seçilmedi'
-          : fallbackName,
-    );
+    return _readString(data, const [
+      'name',
+      'packageName',
+      'title',
+    ], fallback: fallbackName.isEmpty ? 'Paket seçilmedi' : fallbackName);
   }
 
   Future<int> _getPackageTotalLessons(String packageId) async {
@@ -528,22 +444,17 @@ class DashboardRepository {
       return 0;
     }
 
-    return _readInt(
-      data,
-      const [
-        'totalLessons',
-        'lessonCount',
-        'totalLessonCount',
-        'maxLessons',
-        'lessonLimit',
-        'lessonlimit',
-      ],
-    );
+    return _readInt(data, const [
+      'totalLessons',
+      'lessonCount',
+      'totalLessonCount',
+      'maxLessons',
+      'lessonLimit',
+      'lessonlimit',
+    ]);
   }
 
-  Future<_NextLessonInformation?> _getNextLesson(
-    String studentId,
-  ) async {
+  Future<_NextLessonInformation?> _getNextLesson(String studentId) async {
     final now = Timestamp.fromDate(DateTime.now());
 
     try {
@@ -559,9 +470,7 @@ class DashboardRepository {
         return null;
       }
 
-      return _mapNextLesson(
-        snapshot.docs.first.data(),
-      );
+      return _mapNextLesson(snapshot.docs.first.data());
     } catch (_) {
       /*
        * Lessons koleksiyonu veya gerekli Firestore index'i
@@ -571,18 +480,13 @@ class DashboardRepository {
     }
   }
 
-  _NextLessonInformation? _mapNextLesson(
-    Map<String, dynamic> data,
-  ) {
-    final date = _readDateTime(
-      data,
-      const [
-        'startTime',
-        'lessonDate',
-        'startDate',
-        'date',
-      ],
-    );
+  _NextLessonInformation? _mapNextLesson(Map<String, dynamic> data) {
+    final date = _readDateTime(data, const [
+      'startTime',
+      'lessonDate',
+      'startDate',
+      'date',
+    ]);
 
     if (date == null) {
       return null;
@@ -590,22 +494,8 @@ class DashboardRepository {
 
     return _NextLessonInformation(
       date: date,
-      branch: _readString(
-        data,
-        const [
-          'sportName',
-          'branchName',
-          'branch',
-        ],
-      ),
-      location: _readString(
-        data,
-        const [
-          'location',
-          'court',
-          'place',
-        ],
-      ),
+      branch: _readString(data, const ['sportName', 'branchName', 'branch']),
+      location: _readString(data, const ['location', 'court', 'place']),
     );
   }
 
@@ -625,17 +515,11 @@ class DashboardRepository {
     return fallback;
   }
 
-  int _readInt(
-    Map<String, dynamic> data,
-    List<String> keys,
-  ) {
+  int _readInt(Map<String, dynamic> data, List<String> keys) {
     return _readNullableInt(data, keys) ?? 0;
   }
 
-  int? _readNullableInt(
-    Map<String, dynamic> data,
-    List<String> keys,
-  ) {
+  int? _readNullableInt(Map<String, dynamic> data, List<String> keys) {
     for (final key in keys) {
       final value = data[key];
 
@@ -659,10 +543,7 @@ class DashboardRepository {
     return null;
   }
 
-  DateTime? _readDateTime(
-    Map<String, dynamic> data,
-    List<String> keys,
-  ) {
+  DateTime? _readDateTime(Map<String, dynamic> data, List<String> keys) {
     for (final key in keys) {
       final value = data[key];
 

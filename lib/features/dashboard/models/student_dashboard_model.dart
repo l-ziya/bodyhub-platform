@@ -1,6 +1,7 @@
 class StudentDashboardModel {
   final String studentId;
   final String fullName;
+  final String gender;
   final String sportName;
   final String packageName;
   final int totalLessons;
@@ -14,6 +15,7 @@ class StudentDashboardModel {
   const StudentDashboardModel({
     required this.studentId,
     required this.fullName,
+    this.gender = '',
     required this.sportName,
     required this.packageName,
     required this.totalLessons,
@@ -25,12 +27,11 @@ class StudentDashboardModel {
     this.nextLessonLocation,
   });
 
-  factory StudentDashboardModel.empty({
-    required String studentId,
-  }) {
+  factory StudentDashboardModel.empty({required String studentId}) {
     return StudentDashboardModel(
       studentId: studentId,
       fullName: 'Öğrenci',
+      gender: '',
       sportName: 'Branş seçilmedi',
       packageName: 'Paket seçilmedi',
       totalLessons: 0,
@@ -46,6 +47,7 @@ class StudentDashboardModel {
   StudentDashboardModel copyWith({
     String? studentId,
     String? fullName,
+    String? gender,
     String? sportName,
     String? packageName,
     int? totalLessons,
@@ -62,6 +64,7 @@ class StudentDashboardModel {
     return StudentDashboardModel(
       studentId: studentId ?? this.studentId,
       fullName: fullName ?? this.fullName,
+      gender: gender ?? this.gender,
       sportName: sportName ?? this.sportName,
       packageName: packageName ?? this.packageName,
       totalLessons: totalLessons ?? this.totalLessons,
