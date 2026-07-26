@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../providers/auth_provider.dart';
 import '../../sports/presentation/sport_selection_screen.dart';
 
@@ -7,7 +8,8 @@ class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
   @override
-ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
+  ConsumerState<RegisterScreen> createState() =>
+      _RegisterScreenState();
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
@@ -23,6 +25,40 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
     emailController.dispose();
     passwordController.dispose();
     super.dispose();
+  }
+
+  Future<void> _register() async {
+    try {
+      await ref.read(authRepositoryProvider).register(
+            fullName: fullNameController.text.trim(),
+            phone: phoneController.text.trim(),
+            email: emailController.text.trim(),
+            password: passwordController.text.trim(),
+          );
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text("Kayıt başarılı!"),
+        ),
+      );
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (_) => const SportSelectionScreen(),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString()),
+        ),
+      );
+    }
   }
 
   @override
@@ -69,40 +105,14 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             ),
             const SizedBox(height: 30),
 
-            ElevatedButton(
-  onPressed: () async {
-    try {
-      await ref.read(authRepositoryProvider).register(
-        fullName: fullNameController.text.trim(),
-        phone: phoneController.text.trim(),
-        email: emailController.text.trim(),
-        password: passwordController.text.trim(),
-      );
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Kayıt başarılı!"),
-        ),
-      );
-
-      Navigator.pushReplacement(
-  context,
-  MaterialPageRoute(
-    builder: (_) => const SportSelectionScreen(),
-  ),
-);
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString()),
-        ),
-      );
-    }
-  },
-  child: const Text("Kayıt Ol"),
-),
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: ElevatedButton(
+                onPressed: _register,
+                child: const Text("Kayıt Ol"),
+              ),
+            ),
           ],
         ),
       ),

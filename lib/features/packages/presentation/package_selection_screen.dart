@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 
 import '../providers/package_provider.dart';
 import '../../students/providers/student_profile_provider.dart';
-import '../../home/presentation/student_home_screen.dart';
+import '../../student/presentation/student_home_screen.dart';
 
 class PackageSelectionScreen extends ConsumerStatefulWidget {
   final String sportId;
