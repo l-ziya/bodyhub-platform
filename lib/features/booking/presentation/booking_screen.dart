@@ -279,6 +279,12 @@ class _LessonManagementCardState extends ConsumerState<_LessonManagementCard> {
         );
         if (widget.pendingRequest == null) Navigator.of(context).pop();
       }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Talep gönderilemedi: $error')),
+        );
+      }
     } finally { if (mounted) setState(() => _saving = false); }
   }
 

@@ -6,6 +6,7 @@ class StudentDashboardModel {
   final int totalLessons;
   final int usedLessons;
   final int remainingLessons;
+  final String paymentStatus;
   final DateTime? nextLessonDate;
   final String? nextLessonBranch;
   final String? nextLessonLocation;
@@ -18,6 +19,7 @@ class StudentDashboardModel {
     required this.totalLessons,
     required this.usedLessons,
     required this.remainingLessons,
+    this.paymentStatus = 'Ödeme bilgisi yok',
     this.nextLessonDate,
     this.nextLessonBranch,
     this.nextLessonLocation,
@@ -34,6 +36,7 @@ class StudentDashboardModel {
       totalLessons: 0,
       usedLessons: 0,
       remainingLessons: 0,
+      paymentStatus: 'Ödeme bilgisi yok',
       nextLessonDate: null,
       nextLessonBranch: null,
       nextLessonLocation: null,
@@ -48,6 +51,7 @@ class StudentDashboardModel {
     int? totalLessons,
     int? usedLessons,
     int? remainingLessons,
+    String? paymentStatus,
     DateTime? nextLessonDate,
     String? nextLessonBranch,
     String? nextLessonLocation,
@@ -63,6 +67,7 @@ class StudentDashboardModel {
       totalLessons: totalLessons ?? this.totalLessons,
       usedLessons: usedLessons ?? this.usedLessons,
       remainingLessons: remainingLessons ?? this.remainingLessons,
+      paymentStatus: paymentStatus ?? this.paymentStatus,
       nextLessonDate: clearNextLessonDate
           ? null
           : nextLessonDate ?? this.nextLessonDate,

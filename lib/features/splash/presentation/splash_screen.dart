@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
@@ -12,15 +14,21 @@ class SplashScreen extends StatefulWidget {
 }
 
 class _SplashScreenState extends State<SplashScreen> {
+  Timer? _redirectTimer;
+
   @override
   void initState() {
     super.initState();
-    checkUser();
+    _redirectTimer = Timer(const Duration(milliseconds: 1200), checkUser);
+  }
+
+  @override
+  void dispose() {
+    _redirectTimer?.cancel();
+    super.dispose();
   }
 
   Future<void> checkUser() async {
-    await Future.delayed(const Duration(milliseconds: 1200));
-
     if (!mounted) return;
 
     final user = FirebaseAuth.instance.currentUser;

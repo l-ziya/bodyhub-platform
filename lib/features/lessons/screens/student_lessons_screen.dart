@@ -183,6 +183,30 @@ class _LessonMonthCalendar extends StatelessWidget {
   ];
   static const _weekdays = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
+  Color _pastLessonColor(LessonModel lesson) => switch (lesson.attendanceStatus) {
+        'attended' => Colors.green.withValues(alpha: .16),
+        'late' => Colors.orange.withValues(alpha: .18),
+        'absent' => Colors.red.withValues(alpha: .14),
+        'make_up' => Colors.purple.withValues(alpha: .15),
+        _ => Colors.blueGrey.withValues(alpha: .12),
+      };
+
+  IconData _pastLessonIcon(LessonModel lesson) => switch (lesson.attendanceStatus) {
+        'attended' => Icons.check_circle_rounded,
+        'late' => Icons.schedule_rounded,
+        'absent' => Icons.person_off_rounded,
+        'make_up' => Icons.replay_rounded,
+        _ => Icons.help_outline_rounded,
+      };
+
+  Color _pastLessonIconColor(LessonModel lesson) => switch (lesson.attendanceStatus) {
+        'attended' => Colors.green,
+        'late' => Colors.orange.shade800,
+        'absent' => Colors.red,
+        'make_up' => Colors.purple,
+        _ => Colors.blueGrey,
+      };
+
   @override
   Widget build(BuildContext context) {
     final byDay = <int, List<LessonModel>>{};
@@ -214,20 +238,26 @@ class _LessonMonthCalendar extends StatelessWidget {
                 final day = index - 7 - (firstWeekday - 1) + 1;
                 if (day < 1 || day > days) return const SizedBox.shrink();
                 final dayLessons = byDay[day] ?? const [];
+                final primaryLesson = dayLessons.isEmpty ? null : dayLessons.first;
                 return InkWell(
                   onTap: dayLessons.isEmpty ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => LessonDetailScreen(lesson: dayLessons.first))),
                   child: Container(
                     margin: const EdgeInsets.all(2),
                     padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: dayLessons.isEmpty ? null : completed ? Colors.green.withValues(alpha: .16) : Theme.of(context).colorScheme.primaryContainer,
+                      color: dayLessons.isEmpty
+                          ? null
+                          : completed
+                          ? _pastLessonColor(primaryLesson!)
+                          : Theme.of(context).colorScheme.primaryContainer,
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('$day', style: const TextStyle(fontWeight: FontWeight.w700)),
-                        if (completed && dayLessons.isNotEmpty) const Icon(Icons.check_circle_rounded, color: Colors.green, size: 16),
+                        if (completed && primaryLesson != null)
+                          Icon(_pastLessonIcon(primaryLesson), color: _pastLessonIconColor(primaryLesson), size: 16),
                         if (!completed) ...dayLessons.take(2).map((lesson) => Text('${lesson.startTime.hour.toString().padLeft(2, '0')}:${lesson.startTime.minute.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700))),
                       ],
                     ),
@@ -236,7 +266,9 @@ class _LessonMonthCalendar extends StatelessWidget {
               }),
             ),
             const SizedBox(height: 8),
-            Text(completed ? '✓ İşaretli günler tamamlanan dersleri gösterir.' : 'Dolu günlerde ders saatleri yer alır.'),
+            Text(completed
+                ? 'Yeşil: katıldı • Turuncu: geç • Kırmızı: katılmadı • Mor: telafi'
+                : 'Dolu günlerde ders saatleri yer alır.'),
           ],
         ),
       ),

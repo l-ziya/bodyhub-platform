@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../auth/presentation/login_screen.dart';
@@ -14,6 +15,8 @@ import 'widgets/quick_action_card.dart';
 import 'widgets/stats_card.dart';
 import 'widgets/welcome_card.dart';
 import '../../lessons/screens/student_lessons_screen.dart';
+import '../../nutrition/presentation/nutrition_screen.dart';
+import '../../exercise/presentation/exercise_program_screen.dart';
 import '../../sports/presentation/sport_selection_screen.dart';
 import '../../students/providers/current_student_provider.dart';
 import 'student_package_screen.dart';
@@ -31,6 +34,11 @@ class StudentHomeScreen extends ConsumerWidget {
       if (previousProfile.packageId != currentProfile.packageId ||
           previousProfile.sportId != currentProfile.sportId ||
           previousProfile.status != currentProfile.status) {
+        ref.invalidate(studentDashboardProvider);
+      }
+    });
+    ref.listen(studentPackageStreamProvider, (previous, next) {
+      if (next.hasValue && previous?.value != next.value) {
         ref.invalidate(studentDashboardProvider);
       }
     });
@@ -235,6 +243,22 @@ class _QuickActionsDrawer extends StatelessWidget {
                 subtitle: 'Paket kullanımını görüntüle',
                 iconColor: AppColors.info,
                 onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentPackageScreen(dashboard: dashboard))),
+              ),
+              const SizedBox(height: 12),
+              QuickActionCard(
+                icon: Icons.restaurant_menu_rounded,
+                title: 'Beslenme Planım',
+                subtitle: 'Coach’un hazırladığı planı görüntüle',
+                iconColor: AppColors.success,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NutritionScreen(studentId: dashboard.studentId))),
+              ),
+              const SizedBox(height: 12),
+              QuickActionCard(
+                icon: Icons.fitness_center_rounded,
+                title: 'Egzersiz Programım',
+                subtitle: 'Coach’un hazırladığı haftalık programı görüntüle',
+                iconColor: AppColors.info,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ExerciseProgramScreen(studentId: dashboard.studentId))),
               ),
               const SizedBox(height: 12),
               QuickActionCard(
@@ -522,6 +546,8 @@ class _DashboardContent extends StatelessWidget {
             const SizedBox(height: 16),
             _NextLessonDetailCard(dashboard: dashboard),
           ],
+          const SizedBox(height: 16),
+          _PendingLessonRequestCard(studentId: dashboard.studentId),
           const SizedBox(height: 24),
           if (Theme.of(context).platform == TargetPlatform.fuchsia) ...[
           const _SectionTitle(
@@ -780,6 +806,105 @@ class _PackageProgressCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _PendingLessonRequestCard extends StatelessWidget {
+  const _PendingLessonRequestCard({required this.studentId});
+
+  final String studentId;
+
+  String _labelForType(String type) => switch (type) {
+        'reschedule' => 'Ders saati değişikliği',
+        'cancel' => 'Ders iptal talebi',
+        'make_up' => 'Telafi ders talebi',
+        _ => 'Ders talebi',
+      };
+
+  @override
+  Widget build(BuildContext context) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('lesson_change_requests')
+            .where('studentId', isEqualTo: studentId)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData) return const SizedBox.shrink();
+          final allRequests = snapshot.data!.docs;
+          final requests = allRequests
+              .where((request) => request.data()['status'] == 'pending')
+              .toList();
+          if (requests.isEmpty) {
+            final reviewed = allRequests
+                .where((request) {
+                  final status = request.data()['status'] as String?;
+                  final reviewedAt = (request.data()['reviewedAt'] as Timestamp?)?.toDate();
+                  return (status == 'approved' || status == 'rejected') &&
+                      reviewedAt != null &&
+                      reviewedAt.isAfter(DateTime.now().subtract(const Duration(days: 7)));
+                })
+                .toList()
+              ..sort((first, second) {
+                final firstDate = (first.data()['reviewedAt'] as Timestamp?)?.toDate() ?? DateTime(0);
+                final secondDate = (second.data()['reviewedAt'] as Timestamp?)?.toDate() ?? DateTime(0);
+                return secondDate.compareTo(firstDate);
+              });
+            if (reviewed.isEmpty) return const SizedBox.shrink();
+            final latest = reviewed.first.data();
+            final approved = latest['status'] == 'approved';
+            final type = latest['type'] as String? ?? '';
+            final color = approved ? AppColors.success : AppColors.warning;
+            return Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: color.withValues(alpha: 0.32)),
+              ),
+              child: Row(
+                children: [
+                  Icon(approved ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded, color: color),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(approved ? 'Coach talebinizi onayladı' : 'Coach talebinizi reddetti', style: const TextStyle(fontWeight: FontWeight.w800)),
+                        const SizedBox(height: 3),
+                        Text(_labelForType(type)),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }
+          final request = requests.first.data();
+          final type = request['type'] as String? ?? '';
+          return Container(
+            padding: const EdgeInsets.all(16),
+            decoration: BoxDecoration(
+              color: AppColors.warning.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(18),
+              border: Border.all(color: AppColors.warning.withValues(alpha: 0.32)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.hourglass_top_rounded, color: AppColors.warning),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Coach onayı bekleniyor', style: TextStyle(fontWeight: FontWeight.w800)),
+                      const SizedBox(height: 3),
+                      Text('${_labelForType(type)} talebiniz değerlendiriliyor.'),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
 }
 
 class _NextLessonDetailCard extends StatelessWidget {

@@ -138,6 +138,7 @@ class DashboardRepository {
       totalLessons: packageInformation.totalLessons,
       usedLessons: packageInformation.usedLessons,
       remainingLessons: packageInformation.remainingLessons,
+      paymentStatus: packageInformation.paymentStatus,
       nextLessonDate: nextLessonInformation?.date,
       nextLessonBranch: nextLessonInformation?.branch,
       nextLessonLocation: nextLessonInformation?.location,
@@ -405,6 +406,11 @@ class DashboardRepository {
           usedLessons: usedLessons,
           remainingLessons:
               storedRemainingLessons ?? calculatedRemaining,
+          paymentStatus: _readString(
+            studentPackageData,
+            const ['paymentStatus'],
+            fallback: 'Ödeme bilgisi yok',
+          ),
         );
       }
     }
@@ -423,6 +429,7 @@ class DashboardRepository {
       totalLessons: totalLessons,
       usedLessons: 0,
       remainingLessons: totalLessons,
+      paymentStatus: 'Ödeme bilgisi yok',
     );
   }
 
@@ -685,12 +692,14 @@ class _PackageInformation {
   final int totalLessons;
   final int usedLessons;
   final int remainingLessons;
+  final String paymentStatus;
 
   const _PackageInformation({
     required this.packageName,
     required this.totalLessons,
     required this.usedLessons,
     required this.remainingLessons,
+    required this.paymentStatus,
   });
 }
 

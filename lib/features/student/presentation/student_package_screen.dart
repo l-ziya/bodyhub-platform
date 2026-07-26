@@ -168,6 +168,11 @@ class _PackageContent extends StatelessWidget {
               value: dashboard.packageName,
             ),
             _InformationItem(
+              icon: Icons.payments_outlined,
+              label: 'Ödeme durumu',
+              value: dashboard.paymentStatus,
+            ),
+            _InformationItem(
               icon: Icons.event_available_rounded,
               label: 'Sonraki Ders',
               value: dashboard.hasNextLesson

@@ -1,0 +1,140 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isCoach() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['coach', 'admin'];
+    }
+
+    function isOwner(userId) {
+      return signedIn() && request.auth.uid == userId;
+    }
+
+    function isApprovedStudent() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/student_profiles/$(request.auth.uid))
+        && get(/databases/$(database)/documents/student_profiles/$(request.auth.uid)).data.status == 'active';
+    }
+
+    function hasStudentIdentity(data) {
+      return signedIn() && (
+        data.studentId == request.auth.uid ||
+        data.userId == request.auth.uid ||
+        data.uid == request.auth.uid
+      );
+    }
+
+    match /users/{userId} {
+      allow create: if isOwner(userId);
+      allow read: if isOwner(userId) || isCoach() || hasStudentIdentity(resource.data);
+      allow update: if isCoach() || (
+        isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['fullName', 'phone', 'email', 'updatedAt'])
+      );
+      allow delete: if isCoach();
+    }
+
+    match /student_profiles/{userId} {
+      allow create: if isOwner(userId)
+        && request.resource.data.status == 'pending';
+      allow read: if isOwner(userId) || isCoach() || hasStudentIdentity(resource.data);
+      allow update: if isCoach() || (
+        isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['fullName', 'phone', 'email', 'sportsHistory', 'goals', 'updatedAt'])
+      );
+      allow delete: if isCoach();
+    }
+
+    match /availabilities/{availabilityId} {
+      allow create: if isCoach() || isOwner(request.resource.data.studentId);
+      allow read, update, delete: if isCoach() || isOwner(resource.data.studentId);
+    }
+
+    match /bookings/{bookingId} {
+      allow create: if isApprovedStudent()
+        && isOwner(request.resource.data.studentId);
+      allow read: if isCoach() || isOwner(resource.data.studentId);
+      allow update: if isCoach() || (
+        isOwner(resource.data.studentId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
+        && request.resource.data.status == 'cancelled'
+      );
+      allow delete: if isCoach();
+    }
+
+    match /lessons/{lessonId} {
+      allow read: if isCoach() || isOwner(resource.data.studentId);
+      allow create, update, delete: if isCoach();
+    }
+
+    match /student_packages/{packageId} {
+      allow read: if isCoach() || isOwner(packageId) || hasStudentIdentity(resource.data);
+      allow write: if isCoach();
+    }
+
+    match /package_requests/{requestId} {
+      allow create: if isApprovedStudent()
+        && isOwner(request.resource.data.studentId)
+        && request.resource.data.status == 'pending';
+      allow read: if isCoach() || isOwner(resource.data.studentId);
+      allow update: if isCoach() || (
+        isApprovedStudent()
+        && isOwner(resource.data.studentId)
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.status == 'pending'
+      );
+      allow delete: if isCoach();
+    }
+
+    match /lesson_change_requests/{requestId} {
+      allow create: if isApprovedStudent()
+        && isOwner(request.resource.data.studentId)
+        && request.resource.data.status == 'pending';
+      allow read: if isCoach() || isOwner(resource.data.studentId);
+      allow update: if isCoach() || (
+        isApprovedStudent()
+        && isOwner(resource.data.studentId)
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'pending'
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['type', 'reason', 'requestedTime', 'updatedAt'])
+      );
+      allow delete: if isCoach() || (
+        isApprovedStudent()
+        && isOwner(resource.data.studentId)
+        && resource.data.status == 'pending'
+      );
+    }
+
+    // Öğrenci bu planları yalnızca kendi öğrenci kimliği üzerinden okuyabilir.
+    // Oluşturma, güncelleme ve silme yalnızca yetkili koç/admin tarafından yapılır.
+    match /nutrition_plans/{planId} {
+      allow read: if isCoach() || isOwner(resource.data.studentId);
+      allow write: if isCoach();
+    }
+
+    match /exercise_programs/{programId} {
+      allow read: if isCoach() || isOwner(resource.data.studentId);
+      allow write: if isCoach();
+    }
+
+    match /sports/{sportId} {
+      allow read: if signedIn();
+      allow write: if isCoach();
+    }
+
+    match /packages/{packageId} {
+      allow read: if signedIn();
+      allow write: if isCoach();
+    }
+  }
+}
