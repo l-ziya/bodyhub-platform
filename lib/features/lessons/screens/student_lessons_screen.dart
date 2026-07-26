@@ -10,24 +10,29 @@ class StudentLessonsScreen extends ConsumerStatefulWidget {
   const StudentLessonsScreen({
     super.key,
     required this.studentId,
+    this.initialTab = 0,
   });
 
   final String studentId;
+  final int initialTab;
 
   @override
   ConsumerState<StudentLessonsScreen> createState() =>
       _StudentLessonsScreenState();
 }
 
-class _StudentLessonsScreenState
-    extends ConsumerState<StudentLessonsScreen>
+class _StudentLessonsScreenState extends ConsumerState<StudentLessonsScreen>
     with SingleTickerProviderStateMixin {
   late final TabController _controller;
 
   @override
   void initState() {
     super.initState();
-    _controller = TabController(length: 2, vsync: this);
+    _controller = TabController(
+      length: 2,
+      initialIndex: widget.initialTab,
+      vsync: this,
+    );
   }
 
   @override
@@ -48,12 +53,8 @@ class _StudentLessonsScreenState
 
   @override
   Widget build(BuildContext context) {
-    final upcoming = ref.watch(
-      upcomingLessonsProvider(widget.studentId),
-    );
-    final past = ref.watch(
-      pastLessonsProvider(widget.studentId),
-    );
+    final upcoming = ref.watch(upcomingLessonsProvider(widget.studentId));
+    final past = ref.watch(pastLessonsProvider(widget.studentId));
 
     return Scaffold(
       appBar: AppBar(
@@ -64,9 +65,8 @@ class _StudentLessonsScreenState
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(
-                  builder: (_) => StudentLessonCalendarScreen(
-                    studentId: widget.studentId,
-                  ),
+                  builder: (_) =>
+                      StudentLessonCalendarScreen(studentId: widget.studentId),
                 ),
               );
             },
@@ -95,27 +95,19 @@ class _StudentLessonsScreenState
   }
 
   Widget _lessonList(
-    AsyncValue<List<LessonModel>> value,
-    {required bool completed}
-  ) {
+    AsyncValue<List<LessonModel>> value, {
+    required bool completed,
+  }) {
     return value.when(
-      loading: () => const Center(
-        child: CircularProgressIndicator(),
-      ),
+      loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, stackTrace) => ListView(
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(24),
         children: [
           const SizedBox(height: 100),
-          const Icon(
-            Icons.error_outline_rounded,
-            size: 54,
-          ),
+          const Icon(Icons.error_outline_rounded, size: 54),
           const SizedBox(height: 16),
-          Text(
-            'Dersler yüklenemedi.\n$error',
-            textAlign: TextAlign.center,
-          ),
+          Text('Dersler yüklenemedi.\n$error', textAlign: TextAlign.center),
         ],
       ),
       data: (lessons) {
@@ -123,20 +115,14 @@ class _StudentLessonsScreenState
           return const _EmptyLessonsView();
         }
 
-        return _LessonCalendarView(
-          lessons: lessons,
-          completed: completed,
-        );
+        return _LessonCalendarView(lessons: lessons, completed: completed);
       },
     );
   }
 }
 
 class _LessonCalendarView extends StatelessWidget {
-  const _LessonCalendarView({
-    required this.lessons,
-    required this.completed,
-  });
+  const _LessonCalendarView({required this.lessons, required this.completed});
 
   final List<LessonModel> lessons;
   final bool completed;
@@ -178,12 +164,23 @@ class _LessonMonthCalendar extends StatelessWidget {
   final bool completed;
 
   static const _months = [
-    'Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran',
-    'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık',
+    'Ocak',
+    'Şubat',
+    'Mart',
+    'Nisan',
+    'Mayıs',
+    'Haziran',
+    'Temmuz',
+    'Ağustos',
+    'Eylül',
+    'Ekim',
+    'Kasım',
+    'Aralık',
   ];
   static const _weekdays = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
 
-  Color _pastLessonColor(LessonModel lesson) => switch (lesson.attendanceStatus) {
+  Color _pastLessonColor(LessonModel lesson) =>
+      switch (lesson.attendanceStatus) {
         'attended' => Colors.green.withValues(alpha: .16),
         'late' => Colors.orange.withValues(alpha: .18),
         'absent' => Colors.red.withValues(alpha: .14),
@@ -191,7 +188,8 @@ class _LessonMonthCalendar extends StatelessWidget {
         _ => Colors.blueGrey.withValues(alpha: .12),
       };
 
-  IconData _pastLessonIcon(LessonModel lesson) => switch (lesson.attendanceStatus) {
+  IconData _pastLessonIcon(LessonModel lesson) =>
+      switch (lesson.attendanceStatus) {
         'attended' => Icons.check_circle_rounded,
         'late' => Icons.schedule_rounded,
         'absent' => Icons.person_off_rounded,
@@ -199,7 +197,8 @@ class _LessonMonthCalendar extends StatelessWidget {
         _ => Icons.help_outline_rounded,
       };
 
-  Color _pastLessonIconColor(LessonModel lesson) => switch (lesson.attendanceStatus) {
+  Color _pastLessonIconColor(LessonModel lesson) =>
+      switch (lesson.attendanceStatus) {
         'attended' => Colors.green,
         'late' => Colors.orange.shade800,
         'absent' => Colors.red,
@@ -225,7 +224,9 @@ class _LessonMonthCalendar extends StatelessWidget {
           children: [
             Text(
               '${_months[month.month - 1]} ${month.year}',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 10),
             GridView.count(
@@ -234,13 +235,32 @@ class _LessonMonthCalendar extends StatelessWidget {
               physics: const NeverScrollableScrollPhysics(),
               childAspectRatio: .82,
               children: List.generate(cells + 7, (index) {
-                if (index < 7) return Center(child: Text(_weekdays[index], style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700)));
+                if (index < 7) {
+                  return Center(
+                    child: Text(
+                      _weekdays[index],
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  );
+                }
                 final day = index - 7 - (firstWeekday - 1) + 1;
                 if (day < 1 || day > days) return const SizedBox.shrink();
                 final dayLessons = byDay[day] ?? const [];
-                final primaryLesson = dayLessons.isEmpty ? null : dayLessons.first;
+                final primaryLesson = dayLessons.isEmpty
+                    ? null
+                    : dayLessons.first;
                 return InkWell(
-                  onTap: dayLessons.isEmpty ? null : () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => LessonDetailScreen(lesson: dayLessons.first))),
+                  onTap: dayLessons.isEmpty
+                      ? null
+                      : () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                LessonDetailScreen(lesson: dayLessons.first),
+                          ),
+                        ),
                   child: Container(
                     margin: const EdgeInsets.all(2),
                     padding: const EdgeInsets.all(4),
@@ -255,10 +275,28 @@ class _LessonMonthCalendar extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('$day', style: const TextStyle(fontWeight: FontWeight.w700)),
+                        Text(
+                          '$day',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
                         if (completed && primaryLesson != null)
-                          Icon(_pastLessonIcon(primaryLesson), color: _pastLessonIconColor(primaryLesson), size: 16),
-                        if (!completed) ...dayLessons.take(2).map((lesson) => Text('${lesson.startTime.hour.toString().padLeft(2, '0')}:${lesson.startTime.minute.toString().padLeft(2, '0')}', style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w700))),
+                          Icon(
+                            _pastLessonIcon(primaryLesson),
+                            color: _pastLessonIconColor(primaryLesson),
+                            size: 16,
+                          ),
+                        if (!completed)
+                          ...dayLessons
+                              .take(2)
+                              .map(
+                                (lesson) => Text(
+                                  '${lesson.startTime.hour.toString().padLeft(2, '0')}:${lesson.startTime.minute.toString().padLeft(2, '0')}',
+                                  style: const TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
                       ],
                     ),
                   ),
@@ -266,9 +304,11 @@ class _LessonMonthCalendar extends StatelessWidget {
               }),
             ),
             const SizedBox(height: 8),
-            Text(completed
-                ? 'Yeşil: katıldı • Turuncu: geç • Kırmızı: katılmadı • Mor: telafi'
-                : 'Dolu günlerde ders saatleri yer alır.'),
+            Text(
+              completed
+                  ? 'Yeşil: katıldı • Turuncu: geç • Kırmızı: katılmadı • Mor: telafi'
+                  : 'Dolu günlerde ders saatleri yer alır.',
+            ),
           ],
         ),
       ),
@@ -367,15 +407,9 @@ class _EmptyLessonsView extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       children: const [
         SizedBox(height: 120),
-        Icon(
-          Icons.event_busy_rounded,
-          size: 58,
-        ),
+        Icon(Icons.event_busy_rounded, size: 58),
         SizedBox(height: 16),
-        Text(
-          'Gösterilecek ders bulunamadı.',
-          textAlign: TextAlign.center,
-        ),
+        Text('Gösterilecek ders bulunamadı.', textAlign: TextAlign.center),
       ],
     );
   }

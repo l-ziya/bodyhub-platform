@@ -102,11 +102,22 @@ service cloud.firestore {
       allow update: if isCoach() || (
         isApprovedStudent()
         && isOwner(resource.data.studentId)
-        && resource.data.status == 'pending'
-        && request.resource.data.status == 'pending'
-        && request.resource.data.studentId == resource.data.studentId
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['type', 'reason', 'requestedTime', 'updatedAt'])
+        && (
+          (
+            resource.data.status == 'pending'
+            && request.resource.data.status == 'pending'
+            && request.resource.data.studentId == resource.data.studentId
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['type', 'reason', 'requestedTime', 'updatedAt'])
+          ) ||
+          (
+            resource.data.status in ['approved', 'rejected']
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.studentId == resource.data.studentId
+            && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly(['studentFeedbackDismissedAt'])
+          )
+        )
       );
       allow delete: if isCoach() || (
         isApprovedStudent()
@@ -123,6 +134,11 @@ service cloud.firestore {
     }
 
     match /exercise_programs/{programId} {
+      allow read: if isCoach() || isOwner(resource.data.studentId);
+      allow write: if isCoach();
+    }
+
+    match /coach_notes/{lessonId} {
       allow read: if isCoach() || isOwner(resource.data.studentId);
       allow write: if isCoach();
     }

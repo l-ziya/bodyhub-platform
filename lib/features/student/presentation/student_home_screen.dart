@@ -780,7 +780,21 @@ class _DashboardContent extends StatelessWidget {
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          WelcomeCard(studentName: firstName),
+          WelcomeCard(
+            studentName: firstName,
+            studentId: dashboard.studentId,
+            onNutritionTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => NutritionScreen(studentId: dashboard.studentId),
+              ),
+            ),
+            onExerciseTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    ExerciseProgramScreen(studentId: dashboard.studentId),
+              ),
+            ),
+          ),
           const SizedBox(height: 24),
           const _SectionTitle(
             title: 'Spor Bilgilerim',
@@ -798,6 +812,11 @@ class _DashboardContent extends StatelessWidget {
             title: 'Paket',
             value: dashboard.packageName,
             iconColor: AppColors.info,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => StudentPackageScreen(dashboard: dashboard),
+              ),
+            ),
           ),
           const SizedBox(height: 24),
           const _SectionTitle(title: 'Özet', icon: Icons.insights_rounded),
@@ -817,6 +836,14 @@ class _DashboardContent extends StatelessWidget {
                     iconColor: dashboard.hasRemainingLessons
                         ? AppColors.success
                         : AppColors.warning,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => StudentLessonsScreen(
+                          studentId: dashboard.studentId,
+                          initialTab: 1,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -831,6 +858,13 @@ class _DashboardContent extends StatelessWidget {
                         ? _formatLessonDate(dashboard.nextLessonDate!)
                         : 'Henüz planlanmadı',
                     iconColor: AppColors.primary,
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => StudentLessonsScreen(
+                          studentId: dashboard.studentId,
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -1144,6 +1178,7 @@ class _PendingLessonRequestCard extends StatelessWidget {
               final reviewedAt = (request.data()['reviewedAt'] as Timestamp?)
                   ?.toDate();
               return (status == 'approved' || status == 'rejected') &&
+                  request.data()['studentFeedbackDismissedAt'] == null &&
                   reviewedAt != null &&
                   reviewedAt.isAfter(
                     DateTime.now().subtract(const Duration(hours: 48)),
@@ -1158,42 +1193,72 @@ class _PendingLessonRequestCard extends StatelessWidget {
               return secondDate.compareTo(firstDate);
             });
         if (reviewed.isEmpty) return const SizedBox.shrink();
-        final latest = reviewed.first.data();
+        final latestRequest = reviewed.first;
+        final latest = latestRequest.data();
         final approved = latest['status'] == 'approved';
         final type = latest['type'] as String? ?? '';
         final color = approved ? AppColors.success : AppColors.warning;
-        return Container(
-          padding: const EdgeInsets.all(16),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
             borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: color.withValues(alpha: 0.32)),
-          ),
-          child: Row(
-            children: [
-              Icon(
-                approved
-                    ? Icons.check_circle_outline_rounded
-                    : Icons.info_outline_rounded,
-                color: color,
+            onTap: () async {
+              try {
+                await latestRequest.reference.update({
+                  'studentFeedbackDismissedAt': FieldValue.serverTimestamp(),
+                });
+              } on FirebaseException {
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Bildirim kapatılamadı.')),
+                  );
+                }
+              }
+            },
+            child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: color.withValues(alpha: 0.32)),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      approved
-                          ? 'Coach talebinizi onayladı'
-                          : 'Coach talebinizi reddetti',
-                      style: const TextStyle(fontWeight: FontWeight.w800),
+              child: Row(
+                children: [
+                  Icon(
+                    approved
+                        ? Icons.check_circle_outline_rounded
+                        : Icons.info_outline_rounded,
+                    color: color,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          approved
+                              ? 'Coach talebinizi onayladı'
+                              : 'Coach talebinizi reddetti',
+                          style: const TextStyle(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(_labelForType(type)),
+                        const SizedBox(height: 5),
+                        Text(
+                          'Ana ekrandan kaldırmak için dokunun',
+                          style: TextStyle(
+                            color: color,
+                            fontSize: 12,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(height: 3),
-                    Text(_labelForType(type)),
-                  ],
-                ),
+                  ),
+                  Icon(Icons.close_rounded, color: color),
+                ],
               ),
-            ],
+            ),
           ),
         );
       }

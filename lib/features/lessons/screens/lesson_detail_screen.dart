@@ -1,3 +1,4 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -5,10 +6,7 @@ import '../../../core/theme/app_colors.dart';
 import '../models/lesson_model.dart';
 
 class LessonDetailScreen extends StatelessWidget {
-  const LessonDetailScreen({
-    super.key,
-    required this.lesson,
-  });
+  const LessonDetailScreen({super.key, required this.lesson});
 
   final LessonModel lesson;
 
@@ -97,6 +95,8 @@ class LessonDetailScreen extends StatelessWidget {
               ),
             ],
           ),
+          const SizedBox(height: 14),
+          _CoachFeedbackSection(lessonId: lesson.id),
         ],
       ),
     );
@@ -133,6 +133,7 @@ class LessonDetailScreen extends StatelessWidget {
   static String _attendanceText(String status) {
     switch (status) {
       case 'present':
+      case 'attended':
         return 'Katıldı';
       case 'absent':
         return 'Katılmadı';
@@ -147,6 +148,7 @@ class LessonDetailScreen extends StatelessWidget {
   static Color _attendanceColor(String status) {
     switch (status) {
       case 'present':
+      case 'attended':
         return AppColors.success;
       case 'absent':
         return AppColors.error;
@@ -159,10 +161,69 @@ class LessonDetailScreen extends StatelessWidget {
   }
 }
 
+class _CoachFeedbackSection extends StatelessWidget {
+  const _CoachFeedbackSection({required this.lessonId});
+
+  final String lessonId;
+
+  @override
+  Widget build(BuildContext context) =>
+      StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: FirebaseFirestore.instance
+            .collection('coach_notes')
+            .doc(lessonId)
+            .snapshots(),
+        builder: (context, snapshot) {
+          if (!snapshot.hasData || !snapshot.data!.exists) {
+            return const SizedBox.shrink();
+          }
+          final data = snapshot.data!.data() ?? const <String, dynamic>{};
+          final items = <(String, String)>[
+            ('Bugünkü performans', data['performance'] as String? ?? ''),
+            ('Gelişim alanı', data['developmentArea'] as String? ?? ''),
+            ('Sonraki ders hedefi', data['nextGoal'] as String? ?? ''),
+            (
+              'Ev egzersizi / dikkat notu',
+              data['homeExercise'] as String? ?? '',
+            ),
+          ].where((item) => item.$2.trim().isNotEmpty).toList();
+          if (items.isEmpty) return const SizedBox.shrink();
+
+          return _SectionCard(
+            title: 'Koç Geri Bildirimi',
+            children: [
+              for (final item in items)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        item.$1,
+                        style: const TextStyle(
+                          color: AppColors.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        item.$2,
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          height: 1.4,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          );
+        },
+      );
+}
+
 class _HeaderCard extends StatelessWidget {
-  const _HeaderCard({
-    required this.lesson,
-  });
+  const _HeaderCard({required this.lesson});
 
   final LessonModel lesson;
 
@@ -173,9 +234,7 @@ class _HeaderCard extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: AppColors.softGradient,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(
-          color: AppColors.primary.withValues(alpha: 0.16),
-        ),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.16)),
       ),
       child: Row(
         children: [
@@ -241,10 +300,7 @@ class _HeaderCard extends StatelessWidget {
 }
 
 class _SectionCard extends StatelessWidget {
-  const _SectionCard({
-    required this.title,
-    required this.children,
-  });
+  const _SectionCard({required this.title, required this.children});
 
   final String title;
   final List<Widget> children;
@@ -295,11 +351,7 @@ class _DetailRow extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Icon(
-            icon,
-            size: 21,
-            color: AppColors.primary,
-          ),
+          Icon(icon, size: 21, color: AppColors.primary),
           const SizedBox(width: 12),
           SizedBox(
             width: 92,
@@ -358,10 +410,7 @@ class _StatusRow extends StatelessWidget {
             ),
           ),
           Container(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 11,
-              vertical: 7,
-            ),
+            padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
             decoration: BoxDecoration(
               color: color.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(20),

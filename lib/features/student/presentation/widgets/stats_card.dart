@@ -32,9 +32,7 @@ class StatsCard extends StatelessWidget {
           decoration: BoxDecoration(
             color: AppColors.surface,
             borderRadius: BorderRadius.circular(22),
-            border: Border.all(
-              color: AppColors.border,
-            ),
+            border: Border.all(color: AppColors.border),
             boxShadow: const [
               BoxShadow(
                 color: AppColors.shadow,
@@ -46,18 +44,24 @@ class StatsCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Container(
-                width: 46,
-                height: 46,
-                decoration: BoxDecoration(
-                  color: effectiveIconColor.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(15),
-                ),
-                child: Icon(
-                  icon,
-                  color: effectiveIconColor,
-                  size: 25,
-                ),
+              Row(
+                children: [
+                  Container(
+                    width: 46,
+                    height: 46,
+                    decoration: BoxDecoration(
+                      color: effectiveIconColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(15),
+                    ),
+                    child: Icon(icon, color: effectiveIconColor, size: 25),
+                  ),
+                  const Spacer(),
+                  if (onTap != null)
+                    const Icon(
+                      Icons.chevron_right_rounded,
+                      color: AppColors.textSecondary,
+                    ),
+                ],
               ),
               const Spacer(),
               Text(
@@ -65,9 +69,9 @@ class StatsCard extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                      fontWeight: FontWeight.w500,
-                    ),
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
               ),
               const SizedBox(height: 6),
               Text(
@@ -75,10 +79,10 @@ class StatsCard extends StatelessWidget {
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: AppColors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                      height: 1.2,
-                    ),
+                  color: AppColors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                  height: 1.2,
+                ),
               ),
             ],
           ),
