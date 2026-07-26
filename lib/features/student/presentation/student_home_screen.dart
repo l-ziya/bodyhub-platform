@@ -15,6 +15,7 @@ import 'widgets/stats_card.dart';
 import 'widgets/welcome_card.dart';
 import '../../lessons/screens/student_lessons_screen.dart';
 import '../../sports/presentation/sport_selection_screen.dart';
+import '../../students/providers/current_student_provider.dart';
 import 'student_package_screen.dart';
 
 class StudentHomeScreen extends ConsumerWidget {
@@ -22,6 +23,18 @@ class StudentHomeScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.listen(currentStudentStreamProvider, (previous, next) {
+      final previousProfile = previous?.value;
+      final currentProfile = next.value;
+      if (previousProfile == null || currentProfile == null) return;
+
+      if (previousProfile.packageId != currentProfile.packageId ||
+          previousProfile.sportId != currentProfile.sportId ||
+          previousProfile.status != currentProfile.status) {
+        ref.invalidate(studentDashboardProvider);
+      }
+    });
+
     final dashboardAsync = ref.watch(studentDashboardProvider);
 
     return Scaffold(
@@ -55,6 +68,10 @@ class StudentHomeScreen extends ConsumerWidget {
           },
         ),
       ),
+      endDrawer: dashboardAsync.maybeWhen(
+        data: (dashboard) => _QuickActionsDrawer(dashboard: dashboard),
+        orElse: () => null,
+      ),
       appBar: AppBar(
         backgroundColor: AppColors.navy,
         foregroundColor: Colors.white,
@@ -68,13 +85,13 @@ class StudentHomeScreen extends ConsumerWidget {
           fit: BoxFit.contain,
         ),
         actions: [
-          IconButton(
-            tooltip: 'Yenile',
-            color: Colors.white,
-            onPressed: () {
-              ref.invalidate(studentDashboardProvider);
-            },
-            icon: const Icon(Icons.refresh_rounded, size: 25),
+          Builder(
+            builder: (context) => IconButton(
+              tooltip: 'Hızlı İşlemler',
+              color: Colors.white,
+              onPressed: () => Scaffold.of(context).openEndDrawer(),
+              icon: const Icon(Icons.grid_view_rounded, size: 25),
+            ),
           ),
           const SizedBox(width: 6),
         ],
@@ -158,6 +175,79 @@ class StudentHomeScreen extends ConsumerWidget {
       ).showSnackBar(SnackBar(content: Text('Çıkış yapılamadı: $error')));
     }
   }
+}
+
+class _QuickActionsDrawer extends StatelessWidget {
+  const _QuickActionsDrawer({required this.dashboard});
+
+  final StudentDashboardModel dashboard;
+
+  @override
+  Widget build(BuildContext context) => Drawer(
+        width: MediaQuery.of(context).size.width * .88,
+        child: SafeArea(
+          child: ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              Row(
+                children: [
+                  const Icon(Icons.grid_view_rounded, color: AppColors.primary),
+                  const SizedBox(width: 10),
+                  Text('Hızlı İşlemler', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                ],
+              ),
+              const SizedBox(height: 20),
+              QuickActionCard(
+                icon: Icons.schedule_rounded,
+                title: 'Haftalık Rezervasyon',
+                subtitle: 'Gün ve saatlerini planla',
+                iconColor: AppColors.success,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AvailabilityScreen())),
+              ),
+              const SizedBox(height: 12),
+              QuickActionCard(
+                icon: Icons.add_circle_outline_rounded,
+                title: 'Ders Rezervasyonu',
+                subtitle: 'Tek ders talebi oluştur',
+                iconColor: AppColors.primary,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => BookingScreen(dashboard: dashboard))),
+              ),
+              const SizedBox(height: 12),
+              QuickActionCard(
+                icon: Icons.calendar_month_rounded,
+                title: 'Derslerim',
+                subtitle: 'Takvim ve ders detayları',
+                iconColor: AppColors.primary,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentLessonsScreen(studentId: dashboard.studentId))),
+              ),
+              const SizedBox(height: 12),
+              QuickActionCard(
+                icon: Icons.add_card_rounded,
+                title: 'Paket Seç',
+                subtitle: 'Yeni paket talebi oluştur',
+                iconColor: AppColors.success,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SportSelectionScreen())),
+              ),
+              const SizedBox(height: 12),
+              QuickActionCard(
+                icon: Icons.inventory_2_outlined,
+                title: 'Paketim',
+                subtitle: 'Paket kullanımını görüntüle',
+                iconColor: AppColors.info,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentPackageScreen(dashboard: dashboard))),
+              ),
+              const SizedBox(height: 12),
+              QuickActionCard(
+                icon: Icons.person_outline_rounded,
+                title: 'Profilim',
+                subtitle: 'Kişisel bilgilerini düzenle',
+                iconColor: AppColors.warning,
+                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentProfileScreen(dashboard: dashboard))),
+              ),
+            ],
+          ),
+        ),
+      );
 }
 
 class _StudentDrawer extends StatelessWidget {
@@ -433,6 +523,7 @@ class _DashboardContent extends StatelessWidget {
             _NextLessonDetailCard(dashboard: dashboard),
           ],
           const SizedBox(height: 24),
+          if (Theme.of(context).platform == TargetPlatform.fuchsia) ...[
           const _SectionTitle(
             title: 'Hızlı İşlemler',
             icon: Icons.grid_view_rounded,
@@ -520,6 +611,7 @@ class _DashboardContent extends StatelessWidget {
               );
             },
           ),
+          ],
           const SizedBox(height: 28),
           const _MotivationCard(),
         ],

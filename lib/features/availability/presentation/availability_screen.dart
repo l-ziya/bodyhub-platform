@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../models/availability_model.dart';
 import '../providers/availability_provider.dart';
+import '../../booking/providers/booking_provider.dart';
+import '../../dashboard/providers/dashboard_provider.dart';
 
 class AvailabilityScreen extends ConsumerStatefulWidget {
   const AvailabilityScreen({super.key});
@@ -172,6 +174,11 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
     });
 
     try {
+      final dashboard = ref.read(studentDashboardProvider).value;
+      if (dashboard == null || !dashboard.hasPackage) {
+        throw StateError('Önce koç tarafından onaylanmış bir paket gerekli.');
+      }
+
       final repository = ref.read(
         availabilityRepositoryProvider,
       );
@@ -197,6 +204,17 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
         availabilities: availabilities,
       );
 
+      final createdReservations = await ref
+          .read(bookingRepositoryProvider)
+          .createWeeklyReservations(
+            studentId: user.uid,
+            sportName: dashboard.sportName,
+            packageName: dashboard.packageName,
+            weeklySlots: availabilities,
+            isMonthlyPackage: dashboard.packageName.toLowerCase().contains('aylık') ||
+                dashboard.packageName.toLowerCase().contains('monthly'),
+          );
+
       if (!mounted) return;
 
       setState(() {
@@ -207,8 +225,8 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
         SnackBar(
           content: Text(
             wasExistingData
-                ? 'Uygunluk bilgilerin güncellendi.'
-                : 'Uygunluk bilgilerin kaydedildi.',
+                ? '$createdReservations yeni haftalık rezervasyon talebi oluşturuldu.'
+                : '$createdReservations haftalık rezervasyon talebi koç onayına gönderildi.',
           ),
         ),
       );
@@ -238,7 +256,7 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Uygun Olduğum Günler',
+          'Haftalık Rezervasyon',
         ),
       ),
       body: isLoading
@@ -256,7 +274,7 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
                       4,
                     ),
                     child: Text(
-                      'Her gün için yalnızca bir saat aralığı seçebilirsin.',
+                      'Seçtiğin gün ve saatler için sonraki dört haftaya rezervasyon talebi oluşturulur.',
                       style: TextStyle(
                         fontSize: 15,
                         color: Colors.grey,

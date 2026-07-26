@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../dashboard/models/student_dashboard_model.dart';
+import '../../dashboard/providers/dashboard_provider.dart';
 
-class StudentPackageScreen extends StatelessWidget {
+class StudentPackageScreen extends ConsumerWidget {
   const StudentPackageScreen({
     super.key,
     required this.dashboard,
@@ -12,7 +14,9 @@ class StudentPackageScreen extends StatelessWidget {
   final StudentDashboardModel dashboard;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final liveDashboard = ref.watch(studentDashboardProvider).value ?? dashboard;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Paketim'),
@@ -20,8 +24,8 @@ class StudentPackageScreen extends StatelessWidget {
         foregroundColor: Colors.white,
         surfaceTintColor: Colors.transparent,
       ),
-      body: dashboard.hasPackage
-          ? _PackageContent(dashboard: dashboard)
+      body: liveDashboard.hasPackage
+          ? _PackageContent(dashboard: liveDashboard)
           : const _NoPackageView(),
     );
   }

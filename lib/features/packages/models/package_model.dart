@@ -25,7 +25,7 @@ class PackageModel {
       id: id,
       sportId: data['sportId'] ?? '',
       name: data['name'] ?? '',
-      lessonLimit: data['lessonLimit'] ?? 0,
+      lessonLimit: data['lessonLimit'] ?? data['lessonlimit'] ?? 0,
       durationDays: data['durationDays'] ?? 0,
       weeklyLimit: data['weeklyLimit'] ?? 0,
       active: data['active'] ?? false,

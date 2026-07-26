@@ -529,6 +529,7 @@ class DashboardRepository {
         'totalLessonCount',
         'maxLessons',
         'lessonLimit',
+        'lessonlimit',
       ],
     );
   }
