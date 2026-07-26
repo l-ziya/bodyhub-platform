@@ -2,7 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import '../../auth/presentation/login_screen.dart';
-import '../../student/presentation/student_home_screen.dart';
+import '../../student/presentation/student_access_gate.dart';
 
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
@@ -29,7 +29,7 @@ class _SplashScreenState extends State<SplashScreen> {
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
-          builder: (_) => const StudentHomeScreen(),
+          builder: (_) => const StudentAccessGate(),
         ),
       );
     } else {

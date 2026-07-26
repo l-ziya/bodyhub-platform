@@ -15,3 +15,13 @@ final currentStudentProvider =
       .read(studentProfileRepositoryProvider)
       .getStudentProfile(user.uid);
 });
+
+final currentStudentStreamProvider =
+    StreamProvider<StudentProfileModel?>((ref) {
+  final user = FirebaseAuth.instance.currentUser;
+  if (user == null) return Stream.value(null);
+
+  return ref
+      .watch(studentProfileRepositoryProvider)
+      .watchStudentProfile(user.uid);
+});

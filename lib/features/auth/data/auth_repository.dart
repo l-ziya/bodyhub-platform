@@ -17,14 +17,19 @@ class AuthRepository {
       password: password,
     );
 
-    // Firestore
-    await _firestore.collection('users').doc(credential.user!.uid).set({
-      'uid': credential.user!.uid,
+    final uid = credential.user!.uid;
+    final batch = _firestore.batch();
+    final userData = {
+      'uid': uid,
       'fullName': fullName,
       'phone': phone,
       'email': email,
       'status': 'pending',
       'createdAt': FieldValue.serverTimestamp(),
-    });
+    };
+
+    batch.set(_firestore.collection('users').doc(uid), userData);
+    batch.set(_firestore.collection('student_profiles').doc(uid), userData);
+    await batch.commit();
   }
 }

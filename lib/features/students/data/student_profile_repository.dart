@@ -58,6 +58,15 @@ class StudentProfileRepository {
         );
   }
 
+  Stream<StudentProfileModel?> watchStudentProfile(String uid) {
+    return _firestore.collection('student_profiles').doc(uid).snapshots().map(
+      (doc) {
+        if (!doc.exists) return null;
+        return StudentProfileModel.fromFirestore(doc.id, doc.data()!);
+      },
+    );
+  }
+
   /// Profil bilgilerini günceller
   Future<void> updateProfile({
     required String uid,
