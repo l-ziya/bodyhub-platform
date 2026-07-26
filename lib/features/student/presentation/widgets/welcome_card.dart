@@ -88,7 +88,7 @@ class WelcomeCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      "TEST 123456",
+                      studentName,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style:

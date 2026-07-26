@@ -3,8 +3,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/student_profile_model.dart';
 
 class StudentProfileRepository {
-  final FirebaseFirestore _firestore =
-      FirebaseFirestore.instance;
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   Future<void> saveStudentProfile(
     StudentProfileModel profile,
@@ -49,6 +48,26 @@ class StudentProfileRepository {
         'sportId': sportId,
         'packageId': packageId,
         'status': 'active',
+      },
+      SetOptions(merge: true),
+    );
+  }
+
+  /// Profil bilgilerini günceller
+  Future<void> updateProfile({
+    required String uid,
+    required String fullName,
+    required String phone,
+    required String email,
+  }) async {
+    await _firestore
+        .collection('student_profiles')
+        .doc(uid)
+        .set(
+      {
+        'fullName': fullName,
+        'phone': phone,
+        'email': email,
       },
       SetOptions(merge: true),
     );

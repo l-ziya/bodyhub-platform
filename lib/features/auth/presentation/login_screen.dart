@@ -1,8 +1,8 @@
-import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
 
-import 'register_screen.dart';
 import '../../student/presentation/student_home_screen.dart';
+import 'register_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -31,7 +31,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (email.isEmpty || password.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("E-posta ve şifre alanlarını doldurun."),
+          content: Text('E-posta ve şifre alanlarını doldurun.'),
         ),
       );
       return;
@@ -57,18 +57,18 @@ class _LoginScreenState extends State<LoginScreen> {
         (route) => false,
       );
     } on FirebaseAuthException catch (e) {
-      String message = "Giriş yapılamadı.";
+      String message = 'Giriş yapılamadı.';
 
       if (e.code == 'user-not-found') {
-        message = "Bu e-posta ile kayıtlı kullanıcı bulunamadı.";
+        message = 'Bu e-posta ile kayıtlı kullanıcı bulunamadı.';
       } else if (e.code == 'wrong-password') {
-        message = "Şifre hatalı.";
+        message = 'Şifre hatalı.';
       } else if (e.code == 'invalid-credential') {
-        message = "E-posta veya şifre hatalı.";
+        message = 'E-posta veya şifre hatalı.';
       } else if (e.code == 'invalid-email') {
-        message = "Geçerli bir e-posta adresi girin.";
+        message = 'Geçerli bir e-posta adresi girin.';
       } else if (e.code == 'user-disabled') {
-        message = "Bu hesap devre dışı bırakılmış.";
+        message = 'Bu hesap devre dışı bırakılmış.';
       }
 
       if (!mounted) return;
@@ -83,7 +83,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text("Beklenmeyen bir hata oluştu: $e"),
+          content: Text('Beklenmeyen bir hata oluştu: $e'),
         ),
       );
     } finally {
@@ -98,110 +98,119 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text("BODY HUB"),
-        centerTitle: true,
-      ),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(
+            horizontal: 24,
+            vertical: 24,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 10),
 
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-
-          children: [
-            const SizedBox(height: 40),
-
-            const Icon(
-              Icons.sports_tennis,
-              size: 80,
-              color: Colors.green,
-            ),
-
-            const SizedBox(height: 30),
-
-            const Text(
-              "Giriş Yap",
-              textAlign: TextAlign.center,
-
-              style: TextStyle(
-                fontSize: 30,
-                fontWeight: FontWeight.bold,
+              Image.asset(
+                'assets/images/body_hub_logo.png',
+                height: 190,
+                fit: BoxFit.contain,
               ),
-            ),
 
-            const SizedBox(height: 40),
+              const SizedBox(height: 18),
 
-            TextField(
-              controller: emailController,
-
-              keyboardType: TextInputType.emailAddress,
-
-              decoration: const InputDecoration(
-                labelText: "E-posta",
-                border: OutlineInputBorder(),
+              const Text(
+                'Giriş Yap',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 30,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
 
-            const SizedBox(height: 20),
+              const SizedBox(height: 8),
 
-            TextField(
-              controller: passwordController,
-
-              obscureText: true,
-
-              decoration: const InputDecoration(
-                labelText: "Şifre",
-                border: OutlineInputBorder(),
+              const Text(
+                'BODY HUB hesabınla devam et',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Colors.grey,
+                ),
               ),
-            ),
 
-            const SizedBox(height: 30),
+              const SizedBox(height: 32),
 
-            SizedBox(
-              height: 55,
+              TextField(
+                controller: emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                decoration: const InputDecoration(
+                  labelText: 'E-posta',
+                  prefixIcon: Icon(Icons.email_outlined),
+                  border: OutlineInputBorder(),
+                ),
+              ),
 
-              child: ElevatedButton(
-                onPressed: isLoading ? null : login,
+              const SizedBox(height: 18),
 
-                child: isLoading
-                    ? const SizedBox(
-                        width: 24,
-                        height: 24,
+              TextField(
+                controller: passwordController,
+                obscureText: true,
+                textInputAction: TextInputAction.done,
+                onSubmitted: (_) {
+                  if (!isLoading) {
+                    login();
+                  }
+                },
+                decoration: const InputDecoration(
+                  labelText: 'Şifre',
+                  prefixIcon: Icon(Icons.lock_outline_rounded),
+                  border: OutlineInputBorder(),
+                ),
+              ),
 
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
+              const SizedBox(height: 28),
+
+              SizedBox(
+                height: 55,
+                child: ElevatedButton(
+                  onPressed: isLoading ? null : login,
+                  child: isLoading
+                      ? const SizedBox(
+                          width: 24,
+                          height: 24,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                          ),
+                        )
+                      : const Text(
+                          'Giriş Yap',
+                          style: TextStyle(
+                            fontSize: 17,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      )
-                    : const Text(
-                        "Giriş Yap",
-                        style: TextStyle(
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
+                ),
               ),
-            ),
 
-            const SizedBox(height: 10),
+              const SizedBox(height: 12),
 
-            TextButton(
-              onPressed: isLoading
-                  ? null
-                  : () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (_) => const RegisterScreen(),
-                        ),
-                      );
-                    },
-
-              child: const Text(
-                "Hesabın yok mu? Kayıt Ol",
+              TextButton(
+                onPressed: isLoading
+                    ? null
+                    : () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => const RegisterScreen(),
+                          ),
+                        );
+                      },
+                child: const Text(
+                  'Hesabın yok mu? Kayıt Ol',
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

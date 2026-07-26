@@ -540,8 +540,9 @@ class DashboardRepository {
     try {
       final snapshot = await _lessons
           .where('studentId', isEqualTo: studentId)
-          .where('lessonDate', isGreaterThanOrEqualTo: now)
-          .orderBy('lessonDate')
+          .where('status', isEqualTo: 'scheduled')
+          .where('startTime', isGreaterThanOrEqualTo: now)
+          .orderBy('startTime')
           .limit(1)
           .get();
 
@@ -567,9 +568,9 @@ class DashboardRepository {
     final date = _readDateTime(
       data,
       const [
+        'startTime',
         'lessonDate',
         'startDate',
-        'startTime',
         'date',
       ],
     );

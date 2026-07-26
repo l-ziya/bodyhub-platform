@@ -19,8 +19,7 @@ class _SplashScreenState extends State<SplashScreen> {
   }
 
   Future<void> checkUser() async {
-    // Splash ekranının biraz görünmesini sağlıyoruz.
-    await Future.delayed(const Duration(milliseconds: 800));
+    await Future.delayed(const Duration(milliseconds: 1200));
 
     if (!mounted) return;
 
@@ -46,41 +45,36 @@ class _SplashScreenState extends State<SplashScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: Colors.white,
       body: SafeArea(
         child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(
-                Icons.sports_tennis,
-                size: 90,
-                color: Colors.green,
-              ),
-
-              const SizedBox(height: 25),
-
-              const Text(
-                "BODY HUB",
-                style: TextStyle(
-                  fontSize: 34,
-                  fontWeight: FontWeight.bold,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 30),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Image.asset(
+                  "assets/images/body_hub_logo.png",
+                  width: 260,
                 ),
-              ),
 
-              const SizedBox(height: 10),
+                const SizedBox(height: 30),
 
-              const Text(
-                "Train Smarter. Perform Better.",
-                style: TextStyle(
-                  fontSize: 18,
-                  color: Colors.grey,
+                const Text(
+                  "Train Smarter • Perform Better",
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 18,
+                    color: Colors.grey,
+                    fontWeight: FontWeight.w500,
+                  ),
                 ),
-              ),
 
-              const SizedBox(height: 40),
+                const SizedBox(height: 45),
 
-              const CircularProgressIndicator(),
-            ],
+                const CircularProgressIndicator(),
+              ],
+            ),
           ),
         ),
       ),

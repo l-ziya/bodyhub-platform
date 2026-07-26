@@ -29,23 +29,20 @@ class AvailabilityRepository {
   }
 
   /// Öğrencinin uygunluklarını canlı olarak takip eder.
-  Stream<List<AvailabilityModel>> watchStudentAvailabilities(
-    String studentId,
-  ) {
-    return _collection
-        .where('studentId', isEqualTo: studentId)
-        .snapshots()
-        .map((snapshot) {
-      final availabilities = snapshot.docs
-          .map(AvailabilityModel.fromFirestore)
-          .toList();
+  Stream<List<AvailabilityModel>> watchStudentAvailabilities(String studentId) {
+    return _collection.where('studentId', isEqualTo: studentId).snapshots().map(
+      (snapshot) {
+        final availabilities = snapshot.docs
+            .map(AvailabilityModel.fromFirestore)
+            .toList();
 
-      availabilities.sort(
-        (first, second) => first.dayOfWeek.compareTo(second.dayOfWeek),
-      );
+        availabilities.sort(
+          (first, second) => first.dayOfWeek.compareTo(second.dayOfWeek),
+        );
 
-      return availabilities;
-    });
+        return availabilities;
+      },
+    );
   }
 
   /// Eski uygunlukları kaldırır ve yeni seçimleri kaydeder.
@@ -55,6 +52,11 @@ class AvailabilityRepository {
     required String studentId,
     required List<AvailabilityModel> availabilities,
   }) async {
+    _validateAvailabilities(
+      studentId: studentId,
+      availabilities: availabilities,
+    );
+
     final oldSnapshot = await _collection
         .where('studentId', isEqualTo: studentId)
         .get();
@@ -68,18 +70,59 @@ class AvailabilityRepository {
 
     // Yeni uygunlukları, gün başına tek belge olacak şekilde kaydet.
     for (final availability in availabilities) {
-      final documentId =
-          '${availability.studentId}_${availability.dayOfWeek}';
+      final documentId = '${availability.studentId}_${availability.dayOfWeek}';
 
       final documentReference = _collection.doc(documentId);
 
-      batch.set(
-        documentReference,
-        availability.toFirestore(),
-      );
+      batch.set(documentReference, availability.toFirestore());
     }
 
     await batch.commit();
+  }
+
+  void _validateAvailabilities({
+    required String studentId,
+    required List<AvailabilityModel> availabilities,
+  }) {
+    if (studentId.trim().isEmpty) {
+      throw ArgumentError.value(studentId, 'studentId', 'Boş olamaz.');
+    }
+
+    final days = <int>{};
+    for (final availability in availabilities) {
+      if (availability.studentId != studentId) {
+        throw ArgumentError('Her uygunluk kaydı aynı öğrenciye ait olmalı.');
+      }
+
+      if (availability.dayOfWeek < DateTime.monday ||
+          availability.dayOfWeek > DateTime.sunday ||
+          !days.add(availability.dayOfWeek)) {
+        throw ArgumentError(
+          'Her gün için yalnızca bir uygunluk kaydı olabilir.',
+        );
+      }
+
+      final start = _timeInMinutes(availability.startTime);
+      final end = _timeInMinutes(availability.endTime);
+      if (start == null || end == null || start >= end) {
+        throw ArgumentError('Geçerli bir başlangıç ve bitiş saati seçilmeli.');
+      }
+    }
+  }
+
+  int? _timeInMinutes(String value) {
+    final parts = value.split(':');
+    if (parts.length != 2) {
+      return null;
+    }
+
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null || hour > 23 || minute > 59) {
+      return null;
+    }
+
+    return hour * 60 + minute;
   }
 
   Future<void> deleteAvailability(String id) async {
