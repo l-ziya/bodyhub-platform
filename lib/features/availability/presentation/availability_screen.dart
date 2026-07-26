@@ -293,8 +293,6 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
                                               color: isBlocked
                                                   ? const Color(0xFFFFE5E8)
                                                   : const Color(0xFFE5F2FF),
-                                              borderRadius:
-                                                  BorderRadius.circular(10),
                                               shape: RoundedRectangleBorder(
                                                 side: BorderSide(
                                                   color: isBlocked
