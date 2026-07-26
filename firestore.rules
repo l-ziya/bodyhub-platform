@@ -70,6 +70,23 @@ service cloud.firestore {
       allow delete: if isCoach();
     }
 
+    // Bir ders saatinin yalnızca tek bir öğrenci tarafından tutulmasını
+    // sağlayan ortak takvim kilitleri. Öğrenciler sadece doluluk bilgisini
+    // görür; koç saat taşıma ve onay işlemlerinde kilidi yönetir.
+    match /booking_slots/{slotId} {
+      allow read: if isApprovedStudent() || isCoach();
+      allow create: if isApprovedStudent()
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.bookingId is string
+        && request.resource.data.scheduledAt is timestamp
+        && !exists(/databases/$(database)/documents/booking_slots/$(slotId))
+        && existsAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.studentId == request.auth.uid
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.scheduledAt == request.resource.data.scheduledAt;
+      allow update: if isCoach();
+      allow delete: if isCoach() || isOwner(resource.data.studentId);
+    }
+
     match /lessons/{lessonId} {
       allow read: if isCoach() || isOwner(resource.data.studentId);
       allow create, update, delete: if isCoach();

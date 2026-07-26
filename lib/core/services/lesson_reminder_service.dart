@@ -28,6 +28,13 @@ class LessonReminderService {
   Future<void> initialize() async {
     if (_initialized) return;
 
+    // Web sürümünde yerel zamanlanmış bildirim desteği kullanılmaz.
+    // Uygulamanın Firebase ve PWA işlevleri bildirim eklentisinden bağımsızdır.
+    if (kIsWeb) {
+      _initialized = true;
+      return;
+    }
+
     tz.initializeTimeZones();
     await _notifications.initialize(
       settings: const InitializationSettings(
@@ -47,6 +54,7 @@ class LessonReminderService {
   }
 
   Future<void> startForStudent(String studentId) async {
+    if (kIsWeb) return;
     if (studentId.trim().isEmpty) return;
     await initialize();
     if (_studentId == studentId && _lessonSubscription != null) return;

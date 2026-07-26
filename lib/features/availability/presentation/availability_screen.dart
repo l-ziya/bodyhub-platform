@@ -11,8 +11,7 @@ class AvailabilityScreen extends ConsumerStatefulWidget {
   const AvailabilityScreen({super.key});
 
   @override
-  ConsumerState<AvailabilityScreen> createState() =>
-      _AvailabilityScreenState();
+  ConsumerState<AvailabilityScreen> createState() => _AvailabilityScreenState();
 }
 
 class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
@@ -33,39 +32,19 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
   ];
 
   final List<_DayAvailability> days = [
-    _DayAvailability(
-      dayOfWeek: 1,
-      dayName: 'Pazartesi',
-    ),
-    _DayAvailability(
-      dayOfWeek: 2,
-      dayName: 'Salı',
-    ),
-    _DayAvailability(
-      dayOfWeek: 3,
-      dayName: 'Çarşamba',
-    ),
-    _DayAvailability(
-      dayOfWeek: 4,
-      dayName: 'Perşembe',
-    ),
-    _DayAvailability(
-      dayOfWeek: 5,
-      dayName: 'Cuma',
-    ),
-    _DayAvailability(
-      dayOfWeek: 6,
-      dayName: 'Cumartesi',
-    ),
-    _DayAvailability(
-      dayOfWeek: 7,
-      dayName: 'Pazar',
-    ),
+    _DayAvailability(dayOfWeek: 1, dayName: 'Pazartesi'),
+    _DayAvailability(dayOfWeek: 2, dayName: 'Salı'),
+    _DayAvailability(dayOfWeek: 3, dayName: 'Çarşamba'),
+    _DayAvailability(dayOfWeek: 4, dayName: 'Perşembe'),
+    _DayAvailability(dayOfWeek: 5, dayName: 'Cuma'),
+    _DayAvailability(dayOfWeek: 6, dayName: 'Cumartesi'),
+    _DayAvailability(dayOfWeek: 7, dayName: 'Pazar'),
   ];
 
   bool isLoading = true;
   bool isSaving = false;
   bool hasExistingData = false;
+  Set<String> blockedWeeklyTimeSlots = <String>{};
 
   @override
   void initState() {
@@ -87,14 +66,14 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
     }
 
     try {
-      final repository = ref.read(
-        availabilityRepositoryProvider,
-      );
+      final repository = ref.read(availabilityRepositoryProvider);
 
-      final savedAvailabilities =
-          await repository.getStudentAvailabilities(
+      final savedAvailabilities = await repository.getStudentAvailabilities(
         user.uid,
       );
+      final blockedSlots = await ref
+          .read(bookingRepositoryProvider)
+          .getBlockedWeeklyTimeSlots(studentId: user.uid);
 
       for (final saved in savedAvailabilities) {
         final dayIndex = days.indexWhere(
@@ -105,8 +84,7 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
           continue;
         }
 
-        final savedTimeSlot =
-            '${saved.startTime} - ${saved.endTime}';
+        final savedTimeSlot = '${saved.startTime} - ${saved.endTime}';
 
         if (timeSlots.contains(savedTimeSlot)) {
           days[dayIndex].selectedTimeSlot = savedTimeSlot;
@@ -117,6 +95,7 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
 
       setState(() {
         hasExistingData = savedAvailabilities.isNotEmpty;
+        blockedWeeklyTimeSlots = blockedSlots;
         isLoading = false;
       });
     } catch (error) {
@@ -127,11 +106,7 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Uygunluk bilgileri yüklenemedi: $error',
-          ),
-        ),
+        SnackBar(content: Text('Uygunluk bilgileri yüklenemedi: $error')),
       );
     }
   }
@@ -141,27 +116,19 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
 
     if (user == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Kullanıcı oturumu bulunamadı.',
-          ),
-        ),
+        const SnackBar(content: Text('Kullanıcı oturumu bulunamadı.')),
       );
       return;
     }
 
     final selectedDays = days
-        .where(
-          (day) => day.selectedTimeSlot != null,
-        )
+        .where((day) => day.selectedTimeSlot != null)
         .toList();
 
     if (selectedDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'En az bir gün ve saat aralığı seçmelisin.',
-          ),
+          content: Text('En az bir gün ve saat aralığı seçmelisin.'),
         ),
       );
       return;
@@ -179,9 +146,7 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
         throw StateError('Önce koç tarafından onaylanmış bir paket gerekli.');
       }
 
-      final repository = ref.read(
-        availabilityRepositoryProvider,
-      );
+      final repository = ref.read(availabilityRepositoryProvider);
 
       final availabilities = selectedDays.map((day) {
         final timeSlot = day.selectedTimeSlot!;
@@ -211,7 +176,8 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
             sportName: dashboard.sportName,
             packageName: dashboard.packageName,
             weeklySlots: availabilities,
-            isMonthlyPackage: dashboard.packageName.toLowerCase().contains('aylık') ||
+            isMonthlyPackage:
+                dashboard.packageName.toLowerCase().contains('aylık') ||
                 dashboard.packageName.toLowerCase().contains('monthly'),
           );
 
@@ -236,11 +202,7 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
       if (!mounted) return;
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Kayıt sırasında hata oluştu: $error',
-          ),
-        ),
+        SnackBar(content: Text('Kayıt sırasında hata oluştu: $error')),
       );
     } finally {
       if (mounted) {
@@ -254,78 +216,51 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text(
-          'Haftalık Rezervasyon',
-        ),
-      ),
+      appBar: AppBar(title: const Text('Haftalık Rezervasyon')),
       body: isLoading
-          ? const Center(
-              child: CircularProgressIndicator(),
-            )
+          ? const Center(child: CircularProgressIndicator())
           : SafeArea(
               child: Column(
                 children: [
                   const Padding(
-                    padding: EdgeInsets.fromLTRB(
-                      16,
-                      16,
-                      16,
-                      4,
-                    ),
+                    padding: EdgeInsets.fromLTRB(16, 16, 16, 4),
                     child: Text(
                       'Seçtiğin gün ve saatler için sonraki dört haftaya rezervasyon talebi oluşturulur.',
-                      style: TextStyle(
-                        fontSize: 15,
-                        color: Colors.grey,
-                      ),
+                      style: TextStyle(fontSize: 15, color: Colors.grey),
                     ),
                   ),
                   Expanded(
                     child: ListView.separated(
                       padding: const EdgeInsets.all(16),
                       itemCount: days.length,
-                      separatorBuilder: (
-                        context,
-                        index,
-                      ) {
-                        return const SizedBox(
-                          height: 12,
-                        );
+                      separatorBuilder: (context, index) {
+                        return const SizedBox(height: 12);
                       },
-                      itemBuilder: (
-                        context,
-                        index,
-                      ) {
+                      itemBuilder: (context, index) {
                         final day = days[index];
 
                         return Card(
                           child: ExpansionTile(
                             leading: Icon(
                               day.selectedTimeSlot == null
-                                  ? Icons
-                                      .calendar_today_outlined
+                                  ? Icons.calendar_today_outlined
                                   : Icons.check_circle,
-                              color:
-                                  day.selectedTimeSlot == null
-                                      ? Colors.grey
-                                      : Colors.green,
+                              color: day.selectedTimeSlot == null
+                                  ? Colors.grey
+                                  : Colors.green,
                             ),
                             title: Text(
                               day.dayName,
                               style: const TextStyle(
-                                fontWeight:
-                                    FontWeight.w600,
+                                fontWeight: FontWeight.w600,
                               ),
                             ),
                             subtitle: Text(
-                              day.selectedTimeSlot ??
-                                  'Saat seçilmedi',
+                              day.selectedTimeSlot ?? 'Saat seçilmedi',
                             ),
                             children: [
                               Padding(
-                                padding:
-                                    const EdgeInsets.fromLTRB(
+                                padding: const EdgeInsets.fromLTRB(
                                   12,
                                   0,
                                   12,
@@ -334,50 +269,94 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
                                 child: Column(
                                   children: [
                                     RadioGroup<String?>(
-                                      groupValue:
-                                          day.selectedTimeSlot,
+                                      groupValue: day.selectedTimeSlot,
                                       onChanged: (value) {
                                         setState(() {
-                                          day.selectedTimeSlot =
-                                              value;
+                                          day.selectedTimeSlot = value;
                                         });
                                       },
                                       child: Column(
-                                        children:
-                                            timeSlots.map(
-                                          (timeSlot) {
-                                            return RadioListTile<
-                                                String?>(
-                                              contentPadding:
-                                                  EdgeInsets
-                                                      .zero,
-                                              title: Text(
-                                                timeSlot,
+                                        children: timeSlots.map((timeSlot) {
+                                          final isBlocked =
+                                              blockedWeeklyTimeSlots.contains(
+                                                _weeklyTimeKey(
+                                                  day.dayOfWeek,
+                                                  timeSlot,
+                                                ),
+                                              ) &&
+                                              day.selectedTimeSlot != timeSlot;
+                                          return Padding(
+                                            padding: const EdgeInsets.only(
+                                              bottom: 6,
+                                            ),
+                                            child: Material(
+                                              color: isBlocked
+                                                  ? const Color(0xFFFFE5E8)
+                                                  : const Color(0xFFE5F2FF),
+                                              borderRadius:
+                                                  BorderRadius.circular(10),
+                                              shape: RoundedRectangleBorder(
+                                                side: BorderSide(
+                                                  color: isBlocked
+                                                      ? const Color(0xFFE1525C)
+                                                      : const Color(0xFF4A9FE8),
+                                                ),
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
                                               ),
-                                              value: timeSlot,
-                                            );
-                                          },
-                                        ).toList(),
+                                              child: RadioListTile<String?>(
+                                                contentPadding:
+                                                    const EdgeInsets.symmetric(
+                                                      horizontal: 8,
+                                                    ),
+                                                title: Text(
+                                                  timeSlot,
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w600,
+                                                    color: isBlocked
+                                                        ? const Color(
+                                                            0xFF9B1C2C,
+                                                          )
+                                                        : const Color(
+                                                            0xFF0D4F8B,
+                                                          ),
+                                                  ),
+                                                ),
+                                                subtitle: Text(
+                                                  isBlocked ? 'Dolu' : 'Müsait',
+                                                  style: TextStyle(
+                                                    color: isBlocked
+                                                        ? const Color(
+                                                            0xFFB4232D,
+                                                          )
+                                                        : const Color(
+                                                            0xFF1769AA,
+                                                          ),
+                                                    fontWeight: isBlocked
+                                                        ? FontWeight.w700
+                                                        : FontWeight.w500,
+                                                  ),
+                                                ),
+                                                value: timeSlot,
+                                                enabled: !isBlocked,
+                                                activeColor: Colors.green,
+                                              ),
+                                            ),
+                                          );
+                                        }).toList(),
                                       ),
                                     ),
-                                    if (day.selectedTimeSlot !=
-                                        null)
+                                    if (day.selectedTimeSlot != null)
                                       Align(
-                                        alignment:
-                                            Alignment.centerRight,
+                                        alignment: Alignment.centerRight,
                                         child: TextButton.icon(
                                           onPressed: () {
                                             setState(() {
-                                              day.selectedTimeSlot =
-                                                  null;
+                                              day.selectedTimeSlot = null;
                                             });
                                           },
-                                          icon: const Icon(
-                                            Icons.close,
-                                          ),
-                                          label: const Text(
-                                            'Seçimi kaldır',
-                                          ),
+                                          icon: const Icon(Icons.close),
+                                          label: const Text('Seçimi kaldır'),
                                         ),
                                       ),
                                   ],
@@ -395,23 +374,16 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
                       width: double.infinity,
                       height: 52,
                       child: ElevatedButton(
-                        onPressed: isSaving
-                            ? null
-                            : saveAvailabilities,
+                        onPressed: isSaving ? null : saveAvailabilities,
                         child: isSaving
                             ? const SizedBox(
                                 width: 22,
                                 height: 22,
-                                child:
-                                    CircularProgressIndicator(
+                                child: CircularProgressIndicator(
                                   strokeWidth: 2,
                                 ),
                               )
-                            : Text(
-                                hasExistingData
-                                    ? 'Güncelle'
-                                    : 'Kaydet',
-                              ),
+                            : Text(hasExistingData ? 'Güncelle' : 'Kaydet'),
                       ),
                     ),
                   ),
@@ -422,13 +394,13 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
   }
 }
 
+String _weeklyTimeKey(int dayOfWeek, String timeSlot) =>
+    '$dayOfWeek|${timeSlot.split(' - ').first}';
+
 class _DayAvailability {
   final int dayOfWeek;
   final String dayName;
   String? selectedTimeSlot;
 
-  _DayAvailability({
-    required this.dayOfWeek,
-    required this.dayName,
-  });
+  _DayAvailability({required this.dayOfWeek, required this.dayName});
 }

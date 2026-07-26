@@ -9,28 +9,57 @@ class BookingRepository {
 
   final FirebaseFirestore _firestore;
 
-  CollectionReference<Map<String, dynamic>> get _bookings {
-    return _firestore.collection('bookings');
-  }
+  CollectionReference<Map<String, dynamic>> get _bookings =>
+      _firestore.collection('bookings');
+
+  CollectionReference<Map<String, dynamic>> get _bookingSlots =>
+      _firestore.collection('booking_slots');
 
   Stream<List<BookingModel>> watchStudentBookings(String studentId) {
     if (studentId.trim().isEmpty) {
-      throw ArgumentError.value(studentId, 'studentId', 'Boş olamaz.');
+      throw ArgumentError.value(studentId, 'studentId', 'Cannot be empty.');
     }
 
     return _bookings.where('studentId', isEqualTo: studentId).snapshots().map((
       snapshot,
     ) {
-      final bookings = snapshot.docs
-          .map(BookingModel.fromFirestore)
-          .toList(growable: false);
-
-      bookings.sort(
-        (first, second) => first.scheduledAt.compareTo(second.scheduledAt),
-      );
-
+      final bookings =
+          snapshot.docs.map(BookingModel.fromFirestore).toList(growable: false)
+            ..sort(
+              (first, second) =>
+                  first.scheduledAt.compareTo(second.scheduledAt),
+            );
       return bookings;
     });
+  }
+
+  /// Returns weekly times that are already held by another student.
+  Future<Set<String>> getBlockedWeeklyTimeSlots({
+    required String studentId,
+    DateTime? from,
+    DateTime? until,
+  }) async {
+    final start = from ?? DateTime.now();
+    final end = until ?? start.add(const Duration(days: 62));
+    final snapshot = await _bookingSlots
+        .where('scheduledAt', isGreaterThanOrEqualTo: Timestamp.fromDate(start))
+        .where('scheduledAt', isLessThanOrEqualTo: Timestamp.fromDate(end))
+        .get();
+
+    return snapshot.docs
+        .where((document) => document.data()['studentId'] != studentId)
+        .map((document) {
+          final scheduledAt = (document.data()['scheduledAt'] as Timestamp?)
+              ?.toDate();
+          if (scheduledAt == null) return null;
+          return weeklyTimeKey(
+            dayOfWeek: scheduledAt.weekday,
+            startTime:
+                '${scheduledAt.hour.toString().padLeft(2, '0')}:${scheduledAt.minute.toString().padLeft(2, '0')}',
+          );
+        })
+        .whereType<String>()
+        .toSet();
   }
 
   Future<void> createBooking({
@@ -40,42 +69,36 @@ class BookingRepository {
     required DateTime scheduledAt,
     required String notes,
   }) async {
-    if (studentId.trim().isEmpty) {
-      throw ArgumentError.value(studentId, 'studentId', 'Boş olamaz.');
+    if (studentId.trim().isEmpty || !scheduledAt.isAfter(DateTime.now())) {
+      throw ArgumentError('A valid student and future date are required.');
     }
 
-    if (!scheduledAt.isAfter(DateTime.now())) {
-      throw ArgumentError.value(
-        scheduledAt,
-        'scheduledAt',
-        'Geçmiş bir tarih seçilemez.',
-      );
-    }
-
-    final existingBookings = await _bookings
-        .where('studentId', isEqualTo: studentId)
-        .get();
-    final hasConflict = existingBookings.docs
-        .map(BookingModel.fromFirestore)
-        .any(
-          (booking) =>
-              booking.scheduledAt == scheduledAt &&
-              (booking.status == 'pending' || booking.status == 'confirmed'),
+    final bookingReference = _bookings.doc();
+    final slotReference = _bookingSlots.doc(slotId(scheduledAt));
+    await _firestore.runTransaction((transaction) async {
+      if ((await transaction.get(slotReference)).exists) {
+        throw StateError(
+          'Bu tarih ve saat baska bir ogrenci tarafindan secildi.',
         );
-
-    if (hasConflict) {
-      throw StateError('Bu tarih ve saat için zaten aktif bir talep var.');
-    }
-
-    await _bookings.add({
-      'studentId': studentId,
-      'sportName': sportName,
-      'packageName': packageName,
-      'scheduledAt': Timestamp.fromDate(scheduledAt),
-      'status': 'pending',
-      'notes': notes.trim(),
-      'createdAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
+      }
+      transaction.set(bookingReference, {
+        'studentId': studentId,
+        'sportName': sportName,
+        'packageName': packageName,
+        'scheduledAt': Timestamp.fromDate(scheduledAt),
+        'status': 'pending',
+        'notes': notes.trim(),
+        'createdAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      transaction.set(
+        slotReference,
+        _slotData(
+          bookingId: bookingReference.id,
+          studentId: studentId,
+          scheduledAt: scheduledAt,
+        ),
+      );
     });
   }
 
@@ -87,7 +110,7 @@ class BookingRepository {
     required bool isMonthlyPackage,
   }) async {
     if (studentId.trim().isEmpty || weeklySlots.isEmpty) {
-      throw ArgumentError('Öğrenci ve en az bir haftalık rezervasyon gerekli.');
+      throw ArgumentError('Student and at least one weekly slot are required.');
     }
 
     final existingSnapshot = await _bookings
@@ -101,42 +124,86 @@ class BookingRepository {
               booking.status == 'confirmed' ||
               booking.status == 'accepted',
         )
-        .toList();
+        .toList(growable: false);
 
-    final batch = _firestore.batch();
-    var createdCount = 0;
     final now = DateTime.now();
     final recurringGroupId =
         '${studentId}_${now.year}${now.month.toString().padLeft(2, '0')}';
+    final requestedDates = <DateTime>[];
     for (final slot in weeklySlots) {
-      final occurrences = isMonthlyPackage
-          ? _monthlyOccurrences(slot, now)
-          : List.generate(4, (week) => _nextOccurrence(slot, now, week));
-      for (final scheduledAt in occurrences) {
-        final hasConflict = existingBookings.any(
-          (booking) => booking.scheduledAt == scheduledAt,
-        );
-        if (hasConflict) continue;
+      requestedDates.addAll(
+        isMonthlyPackage
+            ? _monthlyOccurrences(slot, now)
+            : List.generate(4, (week) => _nextOccurrence(slot, now, week)),
+      );
+    }
+    final datesToCreate = requestedDates
+        .where(
+          (scheduledAt) => !existingBookings.any(
+            (booking) => booking.scheduledAt == scheduledAt,
+          ),
+        )
+        .toList(growable: false);
+    if (datesToCreate.isEmpty) return 0;
 
-        final reference = _bookings.doc();
-        batch.set(reference, {
+    await _firestore.runTransaction((transaction) async {
+      final slotReferences = {
+        for (final scheduledAt in datesToCreate)
+          slotId(scheduledAt): _bookingSlots.doc(slotId(scheduledAt)),
+      };
+      for (final reference in slotReferences.values) {
+        if ((await transaction.get(reference)).exists) {
+          throw StateError(
+            'Sectigin gun ve saatlerden biri baska bir ogrenci tarafindan rezerve edildi. Lutfen farkli bir saat sec.',
+          );
+        }
+      }
+
+      for (final scheduledAt in datesToCreate) {
+        final bookingReference = _bookings.doc();
+        transaction.set(bookingReference, {
           'studentId': studentId,
           'sportName': sportName,
           'packageName': packageName,
           'scheduledAt': Timestamp.fromDate(scheduledAt),
           'status': 'pending',
-          'notes': 'Haftalık rezervasyon talebi',
+          'notes': 'Haftalik rezervasyon talebi',
           'recurringType': 'weekly',
           'recurringGroupId': recurringGroupId,
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        createdCount++;
+        transaction.set(
+          slotReferences[slotId(scheduledAt)]!,
+          _slotData(
+            bookingId: bookingReference.id,
+            studentId: studentId,
+            scheduledAt: scheduledAt,
+          ),
+        );
       }
+    });
+    return datesToCreate.length;
+  }
+
+  Future<void> cancelBooking(String bookingId) async {
+    if (bookingId.trim().isEmpty) {
+      throw ArgumentError.value(bookingId, 'bookingId', 'Cannot be empty.');
     }
 
-    if (createdCount > 0) await batch.commit();
-    return createdCount;
+    final bookingReference = _bookings.doc(bookingId);
+    await _firestore.runTransaction((transaction) async {
+      final booking = await transaction.get(bookingReference);
+      final scheduledAt = (booking.data()?['scheduledAt'] as Timestamp?)
+          ?.toDate();
+      transaction.update(bookingReference, {
+        'status': 'cancelled',
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      if (scheduledAt != null) {
+        transaction.delete(_bookingSlots.doc(slotId(scheduledAt)));
+      }
+    });
   }
 
   DateTime _nextOccurrence(
@@ -177,14 +244,23 @@ class BookingRepository {
     return dates;
   }
 
-  Future<void> cancelBooking(String bookingId) async {
-    if (bookingId.trim().isEmpty) {
-      throw ArgumentError.value(bookingId, 'bookingId', 'Boş olamaz.');
-    }
+  static String slotId(DateTime scheduledAt) =>
+      'slot_${scheduledAt.millisecondsSinceEpoch}';
 
-    await _bookings.doc(bookingId).update({
-      'status': 'cancelled',
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
-  }
+  static String weeklyTimeKey({
+    required int dayOfWeek,
+    required String startTime,
+  }) => '$dayOfWeek|$startTime';
+
+  static Map<String, dynamic> _slotData({
+    required String bookingId,
+    required String studentId,
+    required DateTime scheduledAt,
+  }) => {
+    'bookingId': bookingId,
+    'studentId': studentId,
+    'scheduledAt': Timestamp.fromDate(scheduledAt),
+    'status': 'pending',
+    'createdAt': FieldValue.serverTimestamp(),
+  };
 }

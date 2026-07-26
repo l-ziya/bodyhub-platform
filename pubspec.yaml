@@ -28,9 +28,31 @@ dev_dependencies:
     sdk: flutter
 
   flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.8
 
 flutter:
   uses-material-design: true
 
   assets:
     - assets/images/body_hub_logo.png
+
+flutter_launcher_icons:
+  android: true
+  web:
+    generate: true
+    image_path: assets/images/body_hub_logo.png
+    background_color: '#082A46'
+    theme_color: '#082A46'
+  image_path: assets/images/body_hub_logo.png
+  adaptive_icon_background: '#082A46'
+  adaptive_icon_foreground: assets/images/body_hub_logo.png
+
+flutter_native_splash:
+  color: '#FFFFFF'
+  image: assets/images/body_hub_logo.png
+  android: true
+  android_12:
+    color: '#FFFFFF'
+    image: assets/images/body_hub_logo.png
+    icon_background_color: '#FFFFFF'

@@ -1,11 +1,11 @@
 {
-    "name": "bodyhub_student",
-    "short_name": "bodyhub_student",
+    "name": "BODY HUB Student",
+    "short_name": "BODY HUB",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#082A46",
+    "theme_color": "#082A46",
+    "description": "BODY HUB öğrenci spor, ders ve paket yönetim platformu.",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
