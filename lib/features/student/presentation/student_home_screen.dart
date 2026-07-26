@@ -14,6 +14,7 @@ import 'widgets/quick_action_card.dart';
 import 'widgets/stats_card.dart';
 import 'widgets/welcome_card.dart';
 import '../../lessons/screens/student_lessons_screen.dart';
+import '../../sports/presentation/sport_selection_screen.dart';
 import 'student_package_screen.dart';
 
 class StudentHomeScreen extends ConsumerWidget {
@@ -473,6 +474,20 @@ class _DashboardContent extends StatelessWidget {
                 MaterialPageRoute(
                   builder: (_) =>
                       StudentLessonsScreen(studentId: dashboard.studentId),
+                ),
+              );
+            },
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.add_card_rounded,
+            title: 'Paket Seç',
+            subtitle: 'Branşını ve paketini seçerek koç onayına gönder',
+            iconColor: AppColors.success,
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const SportSelectionScreen(),
                 ),
               );
             },

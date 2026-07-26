@@ -45,12 +45,22 @@ class _PackageSelectionScreenState
     });
 
     try {
+      final package = ref
+          .read(packagesProvider(widget.sportId))
+          .value
+          ?.firstWhere((item) => item.id == selectedPackage);
+
+      if (package == null) {
+        throw StateError('Seçilen paket artık kullanılamıyor.');
+      }
+
       await ref
           .read(studentProfileRepositoryProvider)
           .updateSportAndPackage(
             uid: user.uid,
             sportId: widget.sportId,
             packageId: selectedPackage!,
+            packageName: package.name,
           );
 
       if (!mounted) return;
@@ -250,7 +260,7 @@ class _PackageSelectionScreenState
                             ),
                           )
                         : const Text(
-                            "Devam Et",
+                            "Koç Onayına Gönder",
                             style: TextStyle(
                               fontSize: 17,
                               fontWeight: FontWeight.bold,

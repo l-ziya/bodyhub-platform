@@ -39,18 +39,23 @@ class StudentProfileRepository {
     required String uid,
     required String sportId,
     required String packageId,
+    required String packageName,
   }) async {
     await _firestore
-        .collection('student_profiles')
+        .collection('package_requests')
         .doc(uid)
         .set(
-      {
-        'sportId': sportId,
-        'packageId': packageId,
-        'status': 'active',
-      },
-      SetOptions(merge: true),
-    );
+          {
+            'studentId': uid,
+            'sportId': sportId,
+            'packageId': packageId,
+            'packageName': packageName,
+            'status': 'pending',
+            'requestedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          },
+          SetOptions(merge: true),
+        );
   }
 
   /// Profil bilgilerini günceller

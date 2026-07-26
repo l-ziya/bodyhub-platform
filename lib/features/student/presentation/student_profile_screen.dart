@@ -1,24 +1,31 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/theme/app_colors.dart';
 import '../../dashboard/models/student_dashboard_model.dart';
+import '../../dashboard/providers/dashboard_provider.dart';
+import '../../students/providers/current_student_provider.dart';
 import 'student_edit_profile_screen.dart';
 
-class StudentProfileScreen extends StatelessWidget {
+class StudentProfileScreen extends ConsumerWidget {
   final StudentDashboardModel dashboard;
 
-  const StudentProfileScreen({
-    super.key,
-    required this.dashboard,
-  });
+  const StudentProfileScreen({super.key, required this.dashboard});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final user = FirebaseAuth.instance.currentUser;
-    final email = _displayValue(user?.email, 'E-posta bilgisi bulunamadı');
+    final profile = ref.watch(currentStudentProvider).value;
+    final fullName = profile?.fullName.trim().isNotEmpty == true
+        ? profile!.fullName
+        : dashboard.fullName;
+    final email = _displayValue(
+      profile?.email ?? user?.email,
+      'E-posta bilgisi bulunamadı',
+    );
     final phone = _displayValue(
-      user?.phoneNumber,
+      profile?.phone ?? user?.phoneNumber,
       'Telefon bilgisi eklenmedi',
     );
 
@@ -32,16 +39,14 @@ class StudentProfileScreen extends StatelessWidget {
         centerTitle: true,
         title: const Text(
           'Profilim',
-          style: TextStyle(
-            fontWeight: FontWeight.w700,
-          ),
+          style: TextStyle(fontWeight: FontWeight.w700),
         ),
       ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 18, 16, 32),
         children: [
           _ProfileHeader(
-            fullName: dashboard.fullName,
+            fullName: fullName,
             sportName: dashboard.sportName,
             packageName: dashboard.packageName,
           ),
@@ -56,7 +61,7 @@ class StudentProfileScreen extends StatelessWidget {
               _ProfileInfoRow(
                 icon: Icons.badge_outlined,
                 title: 'Ad Soyad',
-                value: dashboard.fullName,
+                value: fullName,
               ),
               const _CardDivider(),
               _ProfileInfoRow(
@@ -138,19 +143,18 @@ class StudentProfileScreen extends StatelessWidget {
                 final updated = await Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (_) => StudentEditProfileScreen(
-                      dashboard: dashboard,
-                    ),
+                    builder: (_) =>
+                        StudentEditProfileScreen(dashboard: dashboard),
                   ),
                 );
 
                 if (!context.mounted) return;
 
                 if (updated == true) {
+                  ref.invalidate(currentStudentProvider);
+                  ref.invalidate(studentDashboardProvider);
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Profiliniz güncellendi.'),
-                    ),
+                    const SnackBar(content: Text('Profiliniz güncellendi.')),
                   );
                 }
               },
@@ -235,9 +239,7 @@ class _ProfileHeader extends StatelessWidget {
             decoration: BoxDecoration(
               color: Colors.white.withValues(alpha: 0.12),
               shape: BoxShape.circle,
-              border: Border.all(
-                color: Colors.white.withValues(alpha: 0.20),
-              ),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
             ),
             alignment: Alignment.center,
             child: Text(
@@ -307,10 +309,7 @@ class _SectionTitle extends StatelessWidget {
   final String title;
   final IconData icon;
 
-  const _SectionTitle({
-    required this.title,
-    required this.icon,
-  });
+  const _SectionTitle({required this.title, required this.icon});
 
   @override
   Widget build(BuildContext context) {
@@ -323,19 +322,15 @@ class _SectionTitle extends StatelessWidget {
             color: AppColors.primary.withValues(alpha: 0.10),
             borderRadius: BorderRadius.circular(11),
           ),
-          child: Icon(
-            icon,
-            color: AppColors.primary,
-            size: 19,
-          ),
+          child: Icon(icon, color: AppColors.primary, size: 19),
         ),
         const SizedBox(width: 10),
         Text(
           title,
           style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: AppColors.textPrimary,
-                fontWeight: FontWeight.w700,
-              ),
+            color: AppColors.textPrimary,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ],
     );
@@ -345,9 +340,7 @@ class _SectionTitle extends StatelessWidget {
 class _ProfileInfoCard extends StatelessWidget {
   final List<Widget> children;
 
-  const _ProfileInfoCard({
-    required this.children,
-  });
+  const _ProfileInfoCard({required this.children});
 
   @override
   Widget build(BuildContext context) {
@@ -357,9 +350,7 @@ class _ProfileInfoCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: AppColors.border),
       ),
-      child: Column(
-        children: children,
-      ),
+      child: Column(children: children),
     );
   }
 }
@@ -378,10 +369,7 @@ class _ProfileInfoRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 18,
-        vertical: 16,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
       child: Row(
         children: [
           Container(
@@ -391,11 +379,7 @@ class _ProfileInfoRow extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.10),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(
-              icon,
-              color: AppColors.primary,
-              size: 22,
-            ),
+            child: Icon(icon, color: AppColors.primary, size: 22),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -456,10 +440,7 @@ class _LessonStatCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 10,
-        vertical: 16,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 16),
       decoration: BoxDecoration(
         color: AppColors.surface,
         borderRadius: BorderRadius.circular(20),
@@ -467,11 +448,7 @@ class _LessonStatCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          Icon(
-            icon,
-            color: AppColors.primary,
-            size: 24,
-          ),
+          Icon(icon, color: AppColors.primary, size: 24),
           const SizedBox(height: 9),
           Text(
             value,
@@ -500,9 +477,7 @@ class _LessonStatCard extends StatelessWidget {
 class _PackageProgressCard extends StatelessWidget {
   final StudentDashboardModel dashboard;
 
-  const _PackageProgressCard({
-    required this.dashboard,
-  });
+  const _PackageProgressCard({required this.dashboard});
 
   @override
   Widget build(BuildContext context) {
@@ -511,9 +486,7 @@ class _PackageProgressCard extends StatelessWidget {
       decoration: BoxDecoration(
         gradient: AppColors.softGradient,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(
-          color: AppColors.primary.withValues(alpha: 0.16),
-        ),
+        border: Border.all(color: AppColors.primary.withValues(alpha: 0.16)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

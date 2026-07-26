@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -8,10 +9,7 @@ import '../../students/providers/student_profile_provider.dart';
 class StudentEditProfileScreen extends ConsumerStatefulWidget {
   final StudentDashboardModel dashboard;
 
-  const StudentEditProfileScreen({
-    super.key,
-    required this.dashboard,
-  });
+  const StudentEditProfileScreen({super.key, required this.dashboard});
 
   @override
   ConsumerState<StudentEditProfileScreen> createState() =>
@@ -34,12 +32,16 @@ class _StudentEditProfileScreenState
 
     final profile = ref.read(currentStudentProvider).value;
 
-    _nameController =
-        TextEditingController(text: profile?.fullName ?? widget.dashboard.fullName);
-    _phoneController =
-        TextEditingController(text: profile?.phone ?? '');
-    _emailController =
-        TextEditingController(text: profile?.email ?? '');
+    _nameController = TextEditingController(
+      text: profile?.fullName ?? widget.dashboard.fullName,
+    );
+    final user = FirebaseAuth.instance.currentUser;
+    _phoneController = TextEditingController(
+      text: profile?.phone ?? user?.phoneNumber ?? '',
+    );
+    _emailController = TextEditingController(
+      text: profile?.email ?? user?.email ?? '',
+    );
   }
 
   @override
@@ -53,14 +55,16 @@ class _StudentEditProfileScreenState
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
 
-    final profile = ref.read(currentStudentProvider).value;
-    if (profile == null) return;
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
 
     setState(() => _saving = true);
 
     try {
-      await ref.read(studentProfileRepositoryProvider).updateProfile(
-            uid: profile.uid,
+      await ref
+          .read(studentProfileRepositoryProvider)
+          .updateProfile(
+            uid: user.uid,
             fullName: _nameController.text.trim(),
             phone: _phoneController.text.trim(),
             email: _emailController.text.trim(),
@@ -87,7 +91,8 @@ class _StudentEditProfileScreenState
             TextFormField(
               controller: _nameController,
               decoration: const InputDecoration(labelText: 'Ad Soyad'),
-              validator: (v)=>v==null||v.trim().isEmpty?'Ad Soyad gerekli':null,
+              validator: (v) =>
+                  v == null || v.trim().isEmpty ? 'Ad Soyad gerekli' : null,
             ),
             const SizedBox(height: 16),
             TextFormField(
@@ -100,18 +105,20 @@ class _StudentEditProfileScreenState
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
               decoration: const InputDecoration(labelText: 'E-posta'),
-              validator: (v)=>v==null||!v.contains('@')?'Geçerli e-posta girin':null,
+              validator: (v) => v == null || !v.contains('@')
+                  ? 'Geçerli e-posta girin'
+                  : null,
             ),
             const SizedBox(height: 32),
             SizedBox(
               height: 52,
               child: FilledButton(
-                onPressed: _saving?null:_save,
+                onPressed: _saving ? null : _save,
                 child: _saving
                     ? const CircularProgressIndicator()
                     : const Text('Kaydet'),
               ),
-            )
+            ),
           ],
         ),
       ),
