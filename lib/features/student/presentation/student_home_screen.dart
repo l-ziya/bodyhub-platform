@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 import '../../../core/theme/app_colors.dart';
+import '../../../core/services/lesson_reminder_service.dart';
 import '../../auth/presentation/login_screen.dart';
 import '../../availability/presentation/availability_screen.dart';
 import '../../booking/presentation/booking_screen.dart';
@@ -55,6 +58,20 @@ class StudentHomeScreen extends ConsumerWidget {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (_) => StudentProfileScreen(dashboard: dashboard),
+              ),
+            );
+          },
+          onSettings: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => _StudentSettingsScreen(dashboard: dashboard),
+              ),
+            );
+          },
+          onContact: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => _StudentContactScreen(dashboard: dashboard),
               ),
             );
           },
@@ -115,6 +132,9 @@ class StudentHomeScreen extends ConsumerWidget {
           );
         },
         data: (dashboard) {
+          unawaited(
+            LessonReminderService.instance.startForStudent(dashboard.studentId),
+          );
           return _DashboardContent(
             dashboard: dashboard,
             onRefresh: () async {
@@ -192,86 +212,121 @@ class _QuickActionsDrawer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Drawer(
-        width: MediaQuery.of(context).size.width * .88,
-        child: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(16),
+    width: MediaQuery.of(context).size.width * .88,
+    child: SafeArea(
+      child: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Row(
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.grid_view_rounded, color: AppColors.primary),
-                  const SizedBox(width: 10),
-                  Text('Hızlı İşlemler', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                ],
-              ),
-              const SizedBox(height: 20),
-              QuickActionCard(
-                icon: Icons.schedule_rounded,
-                title: 'Haftalık Rezervasyon',
-                subtitle: 'Gün ve saatlerini planla',
-                iconColor: AppColors.success,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AvailabilityScreen())),
-              ),
-              const SizedBox(height: 12),
-              QuickActionCard(
-                icon: Icons.add_circle_outline_rounded,
-                title: 'Ders Rezervasyonu',
-                subtitle: 'Tek ders talebi oluştur',
-                iconColor: AppColors.primary,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => BookingScreen(dashboard: dashboard))),
-              ),
-              const SizedBox(height: 12),
-              QuickActionCard(
-                icon: Icons.calendar_month_rounded,
-                title: 'Derslerim',
-                subtitle: 'Takvim ve ders detayları',
-                iconColor: AppColors.primary,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentLessonsScreen(studentId: dashboard.studentId))),
-              ),
-              const SizedBox(height: 12),
-              QuickActionCard(
-                icon: Icons.add_card_rounded,
-                title: 'Paket Seç',
-                subtitle: 'Yeni paket talebi oluştur',
-                iconColor: AppColors.success,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => const SportSelectionScreen())),
-              ),
-              const SizedBox(height: 12),
-              QuickActionCard(
-                icon: Icons.inventory_2_outlined,
-                title: 'Paketim',
-                subtitle: 'Paket kullanımını görüntüle',
-                iconColor: AppColors.info,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentPackageScreen(dashboard: dashboard))),
-              ),
-              const SizedBox(height: 12),
-              QuickActionCard(
-                icon: Icons.restaurant_menu_rounded,
-                title: 'Beslenme Planım',
-                subtitle: 'Coach’un hazırladığı planı görüntüle',
-                iconColor: AppColors.success,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => NutritionScreen(studentId: dashboard.studentId))),
-              ),
-              const SizedBox(height: 12),
-              QuickActionCard(
-                icon: Icons.fitness_center_rounded,
-                title: 'Egzersiz Programım',
-                subtitle: 'Coach’un hazırladığı haftalık programı görüntüle',
-                iconColor: AppColors.info,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => ExerciseProgramScreen(studentId: dashboard.studentId))),
-              ),
-              const SizedBox(height: 12),
-              QuickActionCard(
-                icon: Icons.person_outline_rounded,
-                title: 'Profilim',
-                subtitle: 'Kişisel bilgilerini düzenle',
-                iconColor: AppColors.warning,
-                onTap: () => Navigator.of(context).push(MaterialPageRoute(builder: (_) => StudentProfileScreen(dashboard: dashboard))),
+              const Icon(Icons.grid_view_rounded, color: AppColors.primary),
+              const SizedBox(width: 10),
+              Text(
+                'Hızlı İşlemler',
+                style: Theme.of(
+                  context,
+                ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800),
               ),
             ],
           ),
-        ),
-      );
+          const SizedBox(height: 20),
+          QuickActionCard(
+            icon: Icons.schedule_rounded,
+            title: 'Haftalık Rezervasyon',
+            subtitle: 'Gün ve saatlerini planla',
+            iconColor: AppColors.success,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AvailabilityScreen()),
+            ),
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.add_circle_outline_rounded,
+            title: 'Ders Rezervasyonu',
+            subtitle: 'Tek ders talebi oluştur',
+            iconColor: AppColors.primary,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => BookingScreen(dashboard: dashboard),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.calendar_month_rounded,
+            title: 'Derslerim',
+            subtitle: 'Takvim ve ders detayları',
+            iconColor: AppColors.primary,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    StudentLessonsScreen(studentId: dashboard.studentId),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.add_card_rounded,
+            title: 'Paket Seç',
+            subtitle: 'Yeni paket talebi oluştur',
+            iconColor: AppColors.success,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const SportSelectionScreen()),
+            ),
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.inventory_2_outlined,
+            title: 'Paketim',
+            subtitle: 'Paket kullanımını görüntüle',
+            iconColor: AppColors.info,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => StudentPackageScreen(dashboard: dashboard),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.restaurant_menu_rounded,
+            title: 'Beslenme Planım',
+            subtitle: 'Coach’un hazırladığı planı görüntüle',
+            iconColor: AppColors.success,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => NutritionScreen(studentId: dashboard.studentId),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.fitness_center_rounded,
+            title: 'Egzersiz Programım',
+            subtitle: 'Coach’un hazırladığı haftalık programı görüntüle',
+            iconColor: AppColors.info,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) =>
+                    ExerciseProgramScreen(studentId: dashboard.studentId),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.person_outline_rounded,
+            title: 'Profilim',
+            subtitle: 'Kişisel bilgilerini düzenle',
+            iconColor: AppColors.warning,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => StudentProfileScreen(dashboard: dashboard),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 class _StudentDrawer extends StatelessWidget {
@@ -279,6 +334,8 @@ class _StudentDrawer extends StatelessWidget {
   final String sportName;
   final String packageName;
   final VoidCallback onProfile;
+  final VoidCallback? onSettings;
+  final VoidCallback? onContact;
   final Future<void> Function() onLogout;
 
   const _StudentDrawer({
@@ -286,6 +343,8 @@ class _StudentDrawer extends StatelessWidget {
     required this.sportName,
     required this.packageName,
     required this.onProfile,
+    this.onSettings,
+    this.onContact,
     required this.onLogout,
   });
 
@@ -293,14 +352,6 @@ class _StudentDrawer extends StatelessWidget {
   Widget build(BuildContext context) {
     void closeDrawer() {
       Navigator.of(context).pop();
-    }
-
-    void showMessage(String message) {
-      closeDrawer();
-
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
     }
 
     final displayName = studentName.trim().isEmpty
@@ -390,14 +441,16 @@ class _StudentDrawer extends StatelessWidget {
               icon: Icons.settings_outlined,
               title: 'Ayarlar',
               onTap: () {
-                showMessage('Ayarlar ekranı hazırlanıyor.');
+                closeDrawer();
+                onSettings?.call();
               },
             ),
             _DrawerMenuItem(
               icon: Icons.support_agent_rounded,
               title: 'İletişim',
               onTap: () {
-                showMessage('İletişim ekranı hazırlanıyor.');
+                closeDrawer();
+                onContact?.call();
               },
             ),
             const Spacer(),
@@ -421,6 +474,256 @@ class _StudentDrawer extends StatelessWidget {
       ),
     );
   }
+}
+
+class _StudentSettingsScreen extends StatelessWidget {
+  const _StudentSettingsScreen({required this.dashboard});
+
+  final StudentDashboardModel dashboard;
+
+  Future<void> _sendPasswordReset(BuildContext context) async {
+    final email = FirebaseAuth.instance.currentUser?.email;
+    if (email == null || email.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Hesabına ait e-posta adresi bulunamadı.'),
+        ),
+      );
+      return;
+    }
+
+    try {
+      await FirebaseAuth.instance.sendPasswordResetEmail(email: email);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Şifre yenileme bağlantısı $email adresine gönderildi.',
+          ),
+        ),
+      );
+    } on FirebaseAuthException catch (error) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.message ?? 'Şifre yenileme e-postası gönderilemedi.',
+          ),
+        ),
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final email =
+        FirebaseAuth.instance.currentUser?.email ?? 'E-posta bilgisi yok';
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Ayarlar')),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Container(
+            padding: const EdgeInsets.all(18),
+            decoration: BoxDecoration(
+              color: AppColors.navy,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Row(
+              children: [
+                const CircleAvatar(
+                  radius: 26,
+                  backgroundColor: Colors.white24,
+                  child: Icon(
+                    Icons.person_rounded,
+                    color: Colors.white,
+                    size: 30,
+                  ),
+                ),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        dashboard.fullName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(color: Colors.white70),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Hesap',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          Card(
+            child: Column(
+              children: [
+                ListTile(
+                  leading: const Icon(
+                    Icons.person_outline_rounded,
+                    color: AppColors.primary,
+                  ),
+                  title: const Text('Profil bilgilerini düzenle'),
+                  subtitle: const Text('Ad, telefon ve kişisel bilgilerin'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          StudentProfileScreen(dashboard: dashboard),
+                    ),
+                  ),
+                ),
+                const Divider(height: 1),
+                ListTile(
+                  leading: const Icon(
+                    Icons.lock_reset_rounded,
+                    color: AppColors.primary,
+                  ),
+                  title: const Text('Şifremi yenile'),
+                  subtitle: const Text(
+                    'E-posta adresine yenileme bağlantısı gönder',
+                  ),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => _sendPasswordReset(context),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 20),
+          Text(
+            'Uygulama',
+            style: Theme.of(
+              context,
+            ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+          ),
+          const SizedBox(height: 8),
+          const Card(
+            child: ListTile(
+              leading: Icon(Icons.info_outline_rounded, color: AppColors.info),
+              title: Text('BODY HUB Student'),
+              subtitle: Text('Sürüm 1.0'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StudentContactScreen extends StatelessWidget {
+  const _StudentContactScreen({required this.dashboard});
+
+  final StudentDashboardModel dashboard;
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('İletişim ve Destek')),
+    body: ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: AppColors.primary.withValues(alpha: .10),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.support_agent_rounded,
+                size: 34,
+                color: AppColors.primary,
+              ),
+              SizedBox(height: 12),
+              Text(
+                'Koçunla bağlantıda kal',
+                style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800),
+              ),
+              SizedBox(height: 6),
+              Text(
+                'Ders saati değişikliği, iptal ve telafi taleplerini uygulama üzerinden gönderebilirsin.',
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 20),
+        Card(
+          child: ListTile(
+            leading: const Icon(
+              Icons.edit_calendar_rounded,
+              color: AppColors.primary,
+            ),
+            title: const Text('Ders talebi oluştur'),
+            subtitle: const Text(
+              'Ders saati değişikliği, iptal veya telafi iste',
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => BookingScreen(dashboard: dashboard),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: ListTile(
+            leading: const Icon(
+              Icons.calendar_month_rounded,
+              color: AppColors.success,
+            ),
+            title: const Text('Haftalık rezervasyonumu düzenle'),
+            subtitle: const Text(
+              'Koç onayı için gün ve saat tercihlerini ilet',
+            ),
+            trailing: const Icon(Icons.chevron_right_rounded),
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const AvailabilityScreen()),
+            ),
+          ),
+        ),
+        const SizedBox(height: 20),
+        Text(
+          'Destek notu',
+          style: Theme.of(
+            context,
+          ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+        ),
+        const SizedBox(height: 8),
+        const Card(
+          child: Padding(
+            padding: EdgeInsets.all(16),
+            child: Text(
+              'Talebin koç onayına gönderildikten sonra durumunu ana sayfada ve Ders Rezervasyonu ekranında takip edebilirsin.',
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _DrawerMenuItem extends StatelessWidget {
@@ -546,100 +849,100 @@ class _DashboardContent extends StatelessWidget {
             const SizedBox(height: 16),
             _NextLessonDetailCard(dashboard: dashboard),
           ],
-          const SizedBox(height: 16),
-          _PendingLessonRequestCard(studentId: dashboard.studentId),
           const SizedBox(height: 24),
           if (Theme.of(context).platform == TargetPlatform.fuchsia) ...[
-          const _SectionTitle(
-            title: 'Hızlı İşlemler',
-            icon: Icons.grid_view_rounded,
-          ),
-          const SizedBox(height: 12),
-          QuickActionCard(
-            icon: Icons.schedule_rounded,
-            title: 'Uygunluklarım',
-            subtitle: 'Haftalık uygun gün ve saatlerini düzenle',
-            iconColor: AppColors.success,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => const AvailabilityScreen()),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          QuickActionCard(
-            icon: Icons.add_circle_outline_rounded,
-            title: 'Ders Rezervasyonu',
-            subtitle: 'Uygun tarih ve saat için ders talebi oluştur',
-            iconColor: AppColors.primary,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => BookingScreen(dashboard: dashboard),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          QuickActionCard(
-            icon: Icons.calendar_month_rounded,
-            title: 'Derslerim',
-            subtitle: 'Planlanan ve geçmiş derslerini görüntüle',
-            iconColor: AppColors.primary,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) =>
-                      StudentLessonsScreen(studentId: dashboard.studentId),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          QuickActionCard(
-            icon: Icons.add_card_rounded,
-            title: 'Paket Seç',
-            subtitle: 'Branşını ve paketini seçerek koç onayına gönder',
-            iconColor: AppColors.success,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const SportSelectionScreen(),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          QuickActionCard(
-            icon: Icons.inventory_2_outlined,
-            title: 'Paketim',
-            subtitle: 'Paket kullanım ve kalan ders bilgilerini gör',
-            iconColor: AppColors.info,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => StudentPackageScreen(dashboard: dashboard),
-                ),
-              );
-            },
-          ),
-          const SizedBox(height: 12),
-          QuickActionCard(
-            icon: Icons.person_outline_rounded,
-            title: 'Profilim',
-            subtitle: 'Kişisel ve sportif bilgilerini düzenle',
-            iconColor: AppColors.warning,
-            onTap: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => StudentProfileScreen(dashboard: dashboard),
-                ),
-              );
-            },
-          ),
+            const _SectionTitle(
+              title: 'Hızlı İşlemler',
+              icon: Icons.grid_view_rounded,
+            ),
+            const SizedBox(height: 12),
+            QuickActionCard(
+              icon: Icons.schedule_rounded,
+              title: 'Uygunluklarım',
+              subtitle: 'Haftalık uygun gün ve saatlerini düzenle',
+              iconColor: AppColors.success,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const AvailabilityScreen()),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            QuickActionCard(
+              icon: Icons.add_circle_outline_rounded,
+              title: 'Ders Rezervasyonu',
+              subtitle: 'Uygun tarih ve saat için ders talebi oluştur',
+              iconColor: AppColors.primary,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => BookingScreen(dashboard: dashboard),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            QuickActionCard(
+              icon: Icons.calendar_month_rounded,
+              title: 'Derslerim',
+              subtitle: 'Planlanan ve geçmiş derslerini görüntüle',
+              iconColor: AppColors.primary,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        StudentLessonsScreen(studentId: dashboard.studentId),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            QuickActionCard(
+              icon: Icons.add_card_rounded,
+              title: 'Paket Seç',
+              subtitle: 'Branşını ve paketini seçerek koç onayına gönder',
+              iconColor: AppColors.success,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => const SportSelectionScreen(),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            QuickActionCard(
+              icon: Icons.inventory_2_outlined,
+              title: 'Paketim',
+              subtitle: 'Paket kullanım ve kalan ders bilgilerini gör',
+              iconColor: AppColors.info,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => StudentPackageScreen(dashboard: dashboard),
+                  ),
+                );
+              },
+            ),
+            const SizedBox(height: 12),
+            QuickActionCard(
+              icon: Icons.person_outline_rounded,
+              title: 'Profilim',
+              subtitle: 'Kişisel ve sportif bilgilerini düzenle',
+              iconColor: AppColors.warning,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => StudentProfileScreen(dashboard: dashboard),
+                  ),
+                );
+              },
+            ),
           ],
           const SizedBox(height: 28),
           const _MotivationCard(),
+          const SizedBox(height: 16),
+          _PendingLessonRequestCard(studentId: dashboard.studentId),
         ],
       ),
     );
@@ -814,97 +1117,117 @@ class _PendingLessonRequestCard extends StatelessWidget {
   final String studentId;
 
   String _labelForType(String type) => switch (type) {
-        'reschedule' => 'Ders saati değişikliği',
-        'cancel' => 'Ders iptal talebi',
-        'make_up' => 'Telafi ders talebi',
-        _ => 'Ders talebi',
-      };
+    'reschedule' => 'Ders saati değişikliği',
+    'cancel' => 'Ders iptal talebi',
+    'make_up' => 'Telafi ders talebi',
+    _ => 'Ders talebi',
+  };
 
   @override
-  Widget build(BuildContext context) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
-        stream: FirebaseFirestore.instance
-            .collection('lesson_change_requests')
-            .where('studentId', isEqualTo: studentId)
-            .snapshots(),
-        builder: (context, snapshot) {
-          if (!snapshot.hasData) return const SizedBox.shrink();
-          final allRequests = snapshot.data!.docs;
-          final requests = allRequests
-              .where((request) => request.data()['status'] == 'pending')
-              .toList();
-          if (requests.isEmpty) {
-            final reviewed = allRequests
-                .where((request) {
-                  final status = request.data()['status'] as String?;
-                  final reviewedAt = (request.data()['reviewedAt'] as Timestamp?)?.toDate();
-                  return (status == 'approved' || status == 'rejected') &&
-                      reviewedAt != null &&
-                      reviewedAt.isAfter(DateTime.now().subtract(const Duration(days: 7)));
-                })
-                .toList()
-              ..sort((first, second) {
-                final firstDate = (first.data()['reviewedAt'] as Timestamp?)?.toDate() ?? DateTime(0);
-                final secondDate = (second.data()['reviewedAt'] as Timestamp?)?.toDate() ?? DateTime(0);
-                return secondDate.compareTo(firstDate);
-              });
-            if (reviewed.isEmpty) return const SizedBox.shrink();
-            final latest = reviewed.first.data();
-            final approved = latest['status'] == 'approved';
-            final type = latest['type'] as String? ?? '';
-            final color = approved ? AppColors.success : AppColors.warning;
-            return Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: color.withValues(alpha: 0.32)),
+  Widget build(
+    BuildContext context,
+  ) => StreamBuilder<QuerySnapshot<Map<String, dynamic>>>(
+    stream: FirebaseFirestore.instance
+        .collection('lesson_change_requests')
+        .where('studentId', isEqualTo: studentId)
+        .snapshots(),
+    builder: (context, snapshot) {
+      if (!snapshot.hasData) return const SizedBox.shrink();
+      final allRequests = snapshot.data!.docs;
+      final requests = allRequests
+          .where((request) => request.data()['status'] == 'pending')
+          .toList();
+      if (requests.isEmpty) {
+        final reviewed =
+            allRequests.where((request) {
+              final status = request.data()['status'] as String?;
+              final reviewedAt = (request.data()['reviewedAt'] as Timestamp?)
+                  ?.toDate();
+              return (status == 'approved' || status == 'rejected') &&
+                  reviewedAt != null &&
+                  reviewedAt.isAfter(
+                    DateTime.now().subtract(const Duration(hours: 48)),
+                  );
+            }).toList()..sort((first, second) {
+              final firstDate =
+                  (first.data()['reviewedAt'] as Timestamp?)?.toDate() ??
+                  DateTime(0);
+              final secondDate =
+                  (second.data()['reviewedAt'] as Timestamp?)?.toDate() ??
+                  DateTime(0);
+              return secondDate.compareTo(firstDate);
+            });
+        if (reviewed.isEmpty) return const SizedBox.shrink();
+        final latest = reviewed.first.data();
+        final approved = latest['status'] == 'approved';
+        final type = latest['type'] as String? ?? '';
+        final color = approved ? AppColors.success : AppColors.warning;
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: color.withValues(alpha: 0.32)),
+          ),
+          child: Row(
+            children: [
+              Icon(
+                approved
+                    ? Icons.check_circle_outline_rounded
+                    : Icons.info_outline_rounded,
+                color: color,
               ),
-              child: Row(
-                children: [
-                  Icon(approved ? Icons.check_circle_outline_rounded : Icons.info_outline_rounded, color: color),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(approved ? 'Coach talebinizi onayladı' : 'Coach talebinizi reddetti', style: const TextStyle(fontWeight: FontWeight.w800)),
-                        const SizedBox(height: 3),
-                        Text(_labelForType(type)),
-                      ],
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      approved
+                          ? 'Coach talebinizi onayladı'
+                          : 'Coach talebinizi reddetti',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
                     ),
+                    const SizedBox(height: 3),
+                    Text(_labelForType(type)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }
+      final request = requests.first.data();
+      final type = request['type'] as String? ?? '';
+      return Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AppColors.warning.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: AppColors.warning.withValues(alpha: 0.32)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.hourglass_top_rounded, color: AppColors.warning),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Coach onayı bekleniyor',
+                    style: TextStyle(fontWeight: FontWeight.w800),
                   ),
+                  const SizedBox(height: 3),
+                  Text('${_labelForType(type)} talebiniz değerlendiriliyor.'),
                 ],
               ),
-            );
-          }
-          final request = requests.first.data();
-          final type = request['type'] as String? ?? '';
-          return Container(
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: AppColors.warning.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(18),
-              border: Border.all(color: AppColors.warning.withValues(alpha: 0.32)),
             ),
-            child: Row(
-              children: [
-                const Icon(Icons.hourglass_top_rounded, color: AppColors.warning),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Coach onayı bekleniyor', style: TextStyle(fontWeight: FontWeight.w800)),
-                      const SizedBox(height: 3),
-                      Text('${_labelForType(type)} talebiniz değerlendiriliyor.'),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          );
-        },
+          ],
+        ),
       );
+    },
+  );
 }
 
 class _NextLessonDetailCard extends StatelessWidget {

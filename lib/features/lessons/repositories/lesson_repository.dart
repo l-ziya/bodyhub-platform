@@ -6,18 +6,15 @@ import 'package:flutter/foundation.dart';
 import '../models/lesson_model.dart';
 
 class LessonRepository {
-  LessonRepository({
-    FirebaseFirestore? firestore,
-  }) : _firestore = firestore ?? FirebaseFirestore.instance;
+  LessonRepository({FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance;
 
   final FirebaseFirestore _firestore;
 
   CollectionReference<Map<String, dynamic>> get _lessons =>
       _firestore.collection('lessons');
 
-  Future<List<LessonModel>> getUpcomingLessons(
-    String studentId,
-  ) async {
+  Future<List<LessonModel>> getUpcomingLessons(String studentId) async {
     _validateStudentId(studentId);
 
     final now = Timestamp.fromDate(DateTime.now());
@@ -58,9 +55,26 @@ class LessonRepository {
     }
   }
 
-  Future<List<LessonModel>> getPastLessons(
-    String studentId,
-  ) async {
+  Stream<List<LessonModel>> watchUpcomingLessons(String studentId) {
+    _validateStudentId(studentId);
+
+    return _lessons
+        .where('studentId', isEqualTo: studentId)
+        .where('status', isEqualTo: 'scheduled')
+        .where(
+          'startTime',
+          isGreaterThanOrEqualTo: Timestamp.fromDate(DateTime.now()),
+        )
+        .orderBy('startTime')
+        .snapshots()
+        .map(
+          (snapshot) => snapshot.docs
+              .map(LessonModel.fromFirestore)
+              .toList(growable: false),
+        );
+  }
+
+  Future<List<LessonModel>> getPastLessons(String studentId) async {
     _validateStudentId(studentId);
 
     final now = Timestamp.fromDate(DateTime.now());
@@ -100,9 +114,7 @@ class LessonRepository {
     }
   }
 
-  Future<LessonModel?> getLesson(
-    String lessonId,
-  ) async {
+  Future<LessonModel?> getLesson(String lessonId) async {
     if (lessonId.trim().isEmpty) {
       throw ArgumentError('lessonId boş olamaz.');
     }
