@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/config/lesson_duration.dart';
 import '../models/availability_model.dart';
 import '../providers/availability_provider.dart';
 import '../../booking/providers/booking_provider.dart';
@@ -15,21 +16,11 @@ class AvailabilityScreen extends ConsumerStatefulWidget {
 }
 
 class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
-  final List<String> timeSlots = [
-    '08:00 - 09:00',
-    '09:00 - 10:00',
-    '10:00 - 11:00',
-    '11:00 - 12:00',
-    '12:00 - 13:00',
-    '13:00 - 14:00',
-    '14:00 - 15:00',
-    '15:00 - 16:00',
-    '16:00 - 17:00',
-    '17:00 - 18:00',
-    '18:00 - 19:00',
-    '19:00 - 20:00',
-    '20:00 - 21:00',
-  ];
+  final List<String> timeSlots = List<String>.generate(13, (index) {
+    final start = DateTime(2000, 1, 1, 8 + index);
+    final end = start.add(lessonDuration);
+    return '${_formatTime(start)} - ${_formatTime(end)}';
+  });
 
   final List<_DayAvailability> days = [
     _DayAvailability(dayOfWeek: 1, dayName: 'Pazartesi'),
@@ -88,6 +79,16 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
 
         if (timeSlots.contains(savedTimeSlot)) {
           days[dayIndex].selectedTimeSlot = savedTimeSlot;
+          continue;
+        }
+
+        // Eski bir saatlik uygunluk kayıtlarını, başlangıç saati değişmeden
+        // yeni 50 dakikalık seçenekle göster.
+        for (final timeSlot in timeSlots) {
+          if (timeSlot.startsWith('${saved.startTime} - ')) {
+            days[dayIndex].selectedTimeSlot = timeSlot;
+            break;
+          }
         }
       }
 
@@ -110,6 +111,9 @@ class _AvailabilityScreenState extends ConsumerState<AvailabilityScreen> {
       );
     }
   }
+
+  static String _formatTime(DateTime value) =>
+      '${value.hour.toString().padLeft(2, '0')}:${value.minute.toString().padLeft(2, '0')}';
 
   Future<void> saveAvailabilities() async {
     final user = FirebaseAuth.instance.currentUser;
