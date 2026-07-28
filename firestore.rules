@@ -32,6 +32,81 @@ service cloud.firestore {
       );
     }
 
+    function isStringId(value) {
+      return value is string && value.size() > 0;
+    }
+
+    function studentProfile(studentId) {
+      return get(/databases/$(database)/documents/student_profiles/$(studentId));
+    }
+
+    function coachOwnsStudent(studentId) {
+      return isCoach()
+        && isStringId(studentId)
+        && exists(/databases/$(database)/documents/student_profiles/$(studentId))
+        && studentProfile(studentId).data.coachId == request.auth.uid;
+    }
+
+    function coachOwnsBooking(data) {
+      return isCoach() && data.coachId == request.auth.uid;
+    }
+
+    function coachOwnsLesson(data) {
+      return isCoach() && data.coachId == request.auth.uid;
+    }
+
+    function coachOwnsLessonId(lessonId) {
+      return isStringId(lessonId)
+        && exists(/databases/$(database)/documents/lessons/$(lessonId))
+        && coachOwnsLesson(get(/databases/$(database)/documents/lessons/$(lessonId)).data);
+    }
+
+    function coachOwnsBookingId(bookingId) {
+      return isStringId(bookingId)
+        && exists(/databases/$(database)/documents/bookings/$(bookingId))
+        && coachOwnsBooking(get(/databases/$(database)/documents/bookings/$(bookingId)).data);
+    }
+
+    function coachOwnsLessonRequest(data) {
+      return isCoach() && (
+        (data.keys().hasAll(['lessonId']) && coachOwnsLessonId(data.lessonId)) ||
+        (data.keys().hasAll(['bookingId']) && coachOwnsBookingId(data.bookingId))
+      );
+    }
+
+    function slotDataMatchesBooking(data, booking) {
+      return data.bookingId is string
+        && data.studentId == booking.studentId
+        && data.coachId == booking.coachId
+        && data.resourceType in ['coach', 'student']
+        && data.resourceId == (
+          data.resourceType == 'coach' ? data.coachId : data.studentId
+        )
+        && data.blockStart is timestamp
+        && data.scheduledAt is timestamp
+        && data.endTime is timestamp
+        && data.endTime > data.scheduledAt;
+    }
+
+    function slotIdentityUnchanged() {
+      return request.resource.data.bookingId == resource.data.bookingId
+        && request.resource.data.coachId == resource.data.coachId
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.resourceType == resource.data.resourceType
+        && request.resource.data.resourceId == resource.data.resourceId
+        && request.resource.data.blockStart == resource.data.blockStart;
+    }
+
+    function validPackageRequestTransition() {
+      return (
+        resource.data.status == 'pending'
+        && request.resource.data.status in ['pending', 'approved', 'rejected']
+      ) || (
+        resource.data.status == 'approved'
+        && request.resource.data.status == 'approved'
+      );
+    }
+
     match /users/{userId} {
       allow create: if isOwner(userId)
         && request.resource.data.keys().hasOnly([
@@ -71,6 +146,7 @@ service cloud.firestore {
       ) || (
         isCoach()
         && !isOwner(userId)
+        && coachOwnsStudent(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['sportId', 'sportName', 'updatedAt'])
       );
@@ -79,31 +155,67 @@ service cloud.firestore {
 
     match /student_profiles/{userId} {
       allow create: if isOwner(userId)
-        && request.resource.data.status == 'pending';
-      allow read: if isOwner(userId) || isCoach() || hasStudentIdentity(resource.data);
-      allow update: if isCoach() || (
+        && request.resource.data.status == 'pending'
+        && !request.resource.data.keys().hasAny(['coachId']);
+      allow read: if isOwner(userId) || coachOwnsStudent(userId) || hasStudentIdentity(resource.data);
+      allow update: if (
+        coachOwnsStudent(userId)
+        && !request.resource.data.diff(resource.data).affectedKeys()
+          .hasAny(['coachId'])
+      ) || (
+        isCoach()
+        && !resource.data.keys().hasAny(['coachId'])
+        && request.resource.data.coachId == request.auth.uid
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'active'
+      ) || (
         isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly(['fullName', 'phone', 'email', 'gender', 'sportsHistory', 'goals', 'updatedAt'])
       );
-      allow delete: if isCoach();
+      allow delete: if coachOwnsStudent(userId);
     }
 
     match /availabilities/{availabilityId} {
-      allow create: if isCoach() || isOwner(request.resource.data.studentId);
-      allow read, update, delete: if isCoach() || isOwner(resource.data.studentId);
+      allow create: if (
+        isOwner(request.resource.data.studentId)
+        && request.resource.data.keys().hasOnly([
+          'studentId', 'dayOfWeek', 'dayName', 'startTime', 'endTime', 'active', 'createdAt', 'updatedAt'
+        ])
+      ) || coachOwnsStudent(request.resource.data.studentId);
+      allow read: if isOwner(resource.data.studentId)
+        || coachOwnsStudent(resource.data.studentId);
+      allow update: if (
+        isOwner(resource.data.studentId)
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'dayOfWeek', 'dayName', 'startTime', 'endTime', 'active', 'updatedAt'
+        ])
+      ) || (
+        coachOwnsStudent(resource.data.studentId)
+        && request.resource.data.studentId == resource.data.studentId
+      );
+      allow delete: if isOwner(resource.data.studentId)
+        || coachOwnsStudent(resource.data.studentId);
     }
 
     match /bookings/{bookingId} {
       allow create: if isApprovedStudent()
-        && isOwner(request.resource.data.studentId);
-      allow read: if isCoach() || isOwner(resource.data.studentId);
-      allow update: if isCoach() || (
+        && isOwner(request.resource.data.studentId)
+        && request.resource.data.coachId is string
+        && request.resource.data.coachId.size() > 0
+        && get(/databases/$(database)/documents/student_profiles/$(request.auth.uid)).data.coachId
+          == request.resource.data.coachId;
+      allow read: if coachOwnsBooking(resource.data)
+        || isOwner(resource.data.studentId);
+      allow update: if (coachOwnsBooking(resource.data)
+        && request.resource.data.coachId == resource.data.coachId
+        && request.resource.data.studentId == resource.data.studentId) || (
         isOwner(resource.data.studentId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt'])
         && request.resource.data.status == 'cancelled'
       );
-      allow delete: if isCoach();
+      allow delete: if coachOwnsBooking(resource.data);
     }
 
     // Bir ders saatinin yalnızca tek bir öğrenci tarafından tutulmasını
@@ -111,48 +223,107 @@ service cloud.firestore {
     // görür; koç saat taşıma ve onay işlemlerinde kilidi yönetir.
     match /booking_slots/{slotId} {
       allow read: if isApprovedStudent() || isCoach();
-      allow create: if isApprovedStudent()
-        && request.resource.data.studentId == request.auth.uid
+      allow create: if isCoach()
+        && request.resource.data.coachId == request.auth.uid
         && request.resource.data.bookingId is string
-        && request.resource.data.scheduledAt is timestamp
+        && existsAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
+        && slotDataMatchesBooking(
+          request.resource.data,
+          getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data
+        )
+        && (
+          !request.resource.data.keys().hasAll(['lessonId'])
+          || request.resource.data.lessonId == ''
+          || (
+            existsAfter(/databases/$(database)/documents/lessons/$(request.resource.data.lessonId))
+            && getAfter(/databases/$(database)/documents/lessons/$(request.resource.data.lessonId)).data.coachId
+              == request.auth.uid
+            && getAfter(/databases/$(database)/documents/lessons/$(request.resource.data.lessonId)).data.studentId
+              == request.resource.data.studentId
+          )
+        ) || (
+        isApprovedStudent()
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.coachId == get(/databases/$(database)/documents/student_profiles/$(request.auth.uid)).data.coachId
+        && request.resource.data.bookingId is string
         && !exists(/databases/$(database)/documents/booking_slots/$(slotId))
         && existsAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
+        && slotDataMatchesBooking(
+          request.resource.data,
+          getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data
+        )
         && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.studentId == request.auth.uid
-        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.scheduledAt == request.resource.data.scheduledAt;
-      allow update: if isCoach();
-      allow delete: if isCoach() || isOwner(resource.data.studentId);
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.coachId == request.resource.data.coachId
+        && getAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId)).data.scheduledAt == request.resource.data.scheduledAt
+        && request.resource.data.endTime
+          == request.resource.data.scheduledAt + duration.value(50, 'm')
+        && request.resource.data.blockStart
+          >= request.resource.data.scheduledAt - duration.value(9, 'm')
+        && request.resource.data.blockStart < request.resource.data.endTime
+        && slotId.matches(
+          '^' + request.resource.data.resourceType + '_'
+            + request.resource.data.resourceId + '_[0-9]+$'
+        )
+      );
+      allow update: if (coachOwnsBooking(resource.data)
+        && slotIdentityUnchanged()) || (
+        isApprovedStudent()
+        && isOwner(resource.data.studentId)
+        && slotIdentityUnchanged()
+      );
+      allow delete: if coachOwnsBooking(resource.data)
+        || (isOwner(resource.data.studentId) && resource.data.studentId == request.auth.uid);
     }
 
     match /lessons/{lessonId} {
-      allow read: if isCoach() || isOwner(resource.data.studentId);
-      allow create, update, delete: if isCoach();
+      allow read: if coachOwnsLesson(resource.data) || isOwner(resource.data.studentId);
+      allow create: if isCoach()
+        && request.resource.data.coachId == request.auth.uid
+        && coachOwnsStudent(request.resource.data.studentId);
+      allow update: if coachOwnsLesson(resource.data)
+        && request.resource.data.coachId == resource.data.coachId
+        && request.resource.data.studentId == resource.data.studentId
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['bookingId']);
+      allow delete: if coachOwnsLesson(resource.data);
     }
 
     match /student_packages/{packageId} {
-      allow read: if isCoach() || isOwner(packageId) || hasStudentIdentity(resource.data);
-      allow write: if isCoach();
+      allow read: if coachOwnsStudent(packageId) || isOwner(packageId) || hasStudentIdentity(resource.data);
+      allow write: if coachOwnsStudent(packageId);
     }
 
     match /package_requests/{requestId} {
       allow create: if isApprovedStudent()
         && isOwner(request.resource.data.studentId)
-        && request.resource.data.status == 'pending';
-      allow read: if isCoach() || isOwner(resource.data.studentId);
-      allow update: if isCoach() || (
+        && request.resource.data.status == 'pending'
+        && !request.resource.data.keys().hasAny(['coachId', 'coachName', 'reviewedAt']);
+      allow read: if coachOwnsStudent(resource.data.studentId) || isOwner(resource.data.studentId);
+      allow update: if (coachOwnsStudent(resource.data.studentId)
+        && request.resource.data.studentId == resource.data.studentId
+        && validPackageRequestTransition()) || (
         isApprovedStudent()
         && isOwner(resource.data.studentId)
         && request.resource.data.studentId == request.auth.uid
         && request.resource.data.status == 'pending'
+        && resource.data.status == 'pending'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'sportId', 'packageId', 'packageName', 'requestedAt', 'updatedAt'
+        ])
       );
-      allow delete: if isCoach();
+      allow delete: if coachOwnsStudent(resource.data.studentId);
     }
 
     match /lesson_change_requests/{requestId} {
       allow create: if isApprovedStudent()
         && isOwner(request.resource.data.studentId)
-        && request.resource.data.status == 'pending';
-      allow read: if isCoach() || isOwner(resource.data.studentId);
-      allow update: if isCoach() || (
+        && request.resource.data.status == 'pending'
+        && !request.resource.data.keys().hasAny(['coachId', 'coachName', 'reviewedAt'])
+        && isStringId(request.resource.data.lessonId)
+        && exists(/databases/$(database)/documents/lessons/$(request.resource.data.lessonId))
+        && get(/databases/$(database)/documents/lessons/$(request.resource.data.lessonId)).data.studentId == request.auth.uid;
+      allow read: if coachOwnsLessonRequest(resource.data)
+        || isOwner(resource.data.studentId);
+      allow update: if coachOwnsLessonRequest(resource.data) || (
         isApprovedStudent()
         && isOwner(resource.data.studentId)
         && (
@@ -172,7 +343,7 @@ service cloud.firestore {
           )
         )
       );
-      allow delete: if isCoach() || (
+      allow delete: if coachOwnsLessonRequest(resource.data) || (
         isApprovedStudent()
         && isOwner(resource.data.studentId)
         && resource.data.status == 'pending'
