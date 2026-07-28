@@ -9,6 +9,8 @@ service cloud.firestore {
     function isCoach() {
       return signedIn()
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+          .keys().hasAny(['role'])
         && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['coach', 'admin'];
     }
 
@@ -31,14 +33,48 @@ service cloud.firestore {
     }
 
     match /users/{userId} {
-      allow create: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && request.resource.data.keys().hasOnly([
+          'uid',
+          'fullName',
+          'phone',
+          'email',
+          'gender',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.keys().hasAll([
+          'uid',
+          'status',
+          'createdAt'
+        ])
+        && request.resource.data.uid == userId
+        && request.resource.data.status == 'pending';
       allow read: if isOwner(userId) || isCoach() || hasStudentIdentity(resource.data);
-      allow update: if isCoach() || (
+      allow update: if (
         isOwner(userId)
+        && !isCoach()
         && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['fullName', 'phone', 'email', 'gender', 'updatedAt'])
+          .hasOnly(['fullName', 'phone', 'gender', 'updatedAt'])
+      ) || (
+        isCoach()
+        && isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly([
+            'name',
+            'phone',
+            'specialty',
+            'bio',
+            'coachSettings',
+            'updatedAt'
+          ])
+      ) || (
+        isCoach()
+        && !isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['sportId', 'sportName', 'updatedAt'])
       );
-      allow delete: if isCoach();
+      allow delete: if false;
     }
 
     match /student_profiles/{userId} {
