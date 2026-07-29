@@ -3,7 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/student_profile_model.dart';
 
 class StudentProfileRepository {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  StudentProfileRepository({FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  final FirebaseFirestore _firestore;
 
   Future<void> saveStudentProfile(StudentProfileModel profile) async {
     await _firestore
@@ -28,15 +31,41 @@ class StudentProfileRepository {
     required String packageId,
     required String packageName,
   }) async {
-    await _firestore.collection('package_requests').doc(uid).set({
-      'studentId': uid,
-      'sportId': sportId,
-      'packageId': packageId,
-      'packageName': packageName,
-      'status': 'pending',
-      'requestedAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    }, SetOptions(merge: true));
+    final profileReference = _firestore.collection('student_profiles').doc(uid);
+    final requestReference = _firestore.collection('package_requests').doc(uid);
+
+    await _firestore.runTransaction((transaction) async {
+      final profile = await transaction.get(profileReference);
+      final request = await transaction.get(requestReference);
+      if (!profile.exists) {
+        throw StateError('Öğrenci profili bulunamadı.');
+      }
+      final profileData = profile.data() ?? const <String, dynamic>{};
+      final coachId = profileData['coachId'] as String? ?? '';
+      if (profileData['status'] != 'active' || coachId.trim().isEmpty) {
+        throw StateError('Paket talebi için aktif bir koç ataması gerekli.');
+      }
+      if (request.exists) {
+        final requestData = request.data() ?? const <String, dynamic>{};
+        final requestStudentId = requestData['studentId'] as String? ?? '';
+        final requestCoachId = requestData['coachId'] as String? ?? '';
+        if ((requestStudentId.isNotEmpty && requestStudentId != uid) ||
+            (requestCoachId.isNotEmpty && requestCoachId != coachId)) {
+          throw StateError('Paket talebi koç atamasıyla eşleşmiyor.');
+        }
+      }
+
+      transaction.set(requestReference, {
+        'studentId': uid,
+        'coachId': coachId,
+        'sportId': sportId,
+        'packageId': packageId,
+        'packageName': packageName,
+        'status': 'pending',
+        'requestedAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      }, SetOptions(merge: true));
+    });
   }
 
   Stream<StudentProfileModel?> watchStudentProfile(String uid) {

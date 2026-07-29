@@ -8,10 +8,8 @@ service cloud.firestore {
 
     function isCoach() {
       return signedIn()
-        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data
-          .keys().hasAny(['role'])
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['coach', 'admin'];
+        && request.auth.token.keys().hasAll(['role'])
+        && request.auth.token.role in ['coach', 'admin'];
     }
 
     function isOwner(userId) {
@@ -24,12 +22,53 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/student_profiles/$(request.auth.uid)).data.status == 'active';
     }
 
+    function approvedStudentHasAssignedCoach() {
+      return isApprovedStudent()
+        && studentProfile(request.auth.uid).data.keys().hasAll(['coachId'])
+        && isStringId(studentProfile(request.auth.uid).data.coachId);
+    }
+
+    function studentWritesAssignedCoach(data) {
+      return approvedStudentHasAssignedCoach()
+        && data.keys().hasAll(['coachId'])
+        && data.coachId == studentProfile(request.auth.uid).data.coachId;
+    }
+
+    function coachIdIsImmutableOrProfileAssigned(studentId) {
+      return (
+        resource.data.keys().hasAll(['coachId'])
+        && request.resource.data.keys().hasAll(['coachId'])
+        && request.resource.data.coachId == resource.data.coachId
+      ) || (
+        !resource.data.keys().hasAny(['coachId'])
+        && (
+          !request.resource.data.keys().hasAny(['coachId']) || (
+            exists(/databases/$(database)/documents/student_profiles/$(studentId))
+            && request.resource.data.coachId == studentProfile(studentId).data.coachId
+          )
+        )
+      );
+    }
+
     function hasStudentIdentity(data) {
       return signedIn() && (
-        data.studentId == request.auth.uid ||
-        data.userId == request.auth.uid ||
-        data.uid == request.auth.uid
+        (data.keys().hasAll(['studentId']) && data.studentId == request.auth.uid) ||
+        (data.keys().hasAll(['userId']) && data.userId == request.auth.uid) ||
+        (data.keys().hasAll(['uid']) && data.uid == request.auth.uid)
       );
+    }
+
+    function coachOwnsRecord(data) {
+      return isCoach()
+        && data.keys().hasAll(['coachId'])
+        && data.coachId == request.auth.uid;
+    }
+
+    function isPendingUnassignedStudent(data) {
+      return isCoach()
+        && data.keys().hasAll(['status'])
+        && data.status == 'pending'
+        && !data.keys().hasAny(['coachId']);
     }
 
     function isStringId(value) {
@@ -44,15 +83,16 @@ service cloud.firestore {
       return isCoach()
         && isStringId(studentId)
         && exists(/databases/$(database)/documents/student_profiles/$(studentId))
+        && studentProfile(studentId).data.keys().hasAll(['coachId'])
         && studentProfile(studentId).data.coachId == request.auth.uid;
     }
 
     function coachOwnsBooking(data) {
-      return isCoach() && data.coachId == request.auth.uid;
+      return coachOwnsRecord(data);
     }
 
     function coachOwnsLesson(data) {
-      return isCoach() && data.coachId == request.auth.uid;
+      return coachOwnsRecord(data);
     }
 
     function coachOwnsLessonId(lessonId) {
@@ -72,6 +112,17 @@ service cloud.firestore {
         (data.keys().hasAll(['lessonId']) && coachOwnsLessonId(data.lessonId)) ||
         (data.keys().hasAll(['bookingId']) && coachOwnsBookingId(data.bookingId))
       );
+    }
+
+    function lessonRequestMatchesAssignedCoach(data) {
+      return isStringId(data.lessonId)
+        && exists(/databases/$(database)/documents/lessons/$(data.lessonId))
+        && get(/databases/$(database)/documents/lessons/$(data.lessonId)).data
+          .keys().hasAll(['studentId', 'coachId'])
+        && get(/databases/$(database)/documents/lessons/$(data.lessonId)).data.studentId
+          == request.auth.uid
+        && get(/databases/$(database)/documents/lessons/$(data.lessonId)).data.coachId
+          == data.coachId;
     }
 
     function slotDataMatchesBooking(data, booking) {
@@ -157,7 +208,11 @@ service cloud.firestore {
       allow create: if isOwner(userId)
         && request.resource.data.status == 'pending'
         && !request.resource.data.keys().hasAny(['coachId']);
-      allow read: if isOwner(userId) || coachOwnsStudent(userId) || hasStudentIdentity(resource.data);
+      allow read: if isOwner(userId)
+        || coachOwnsRecord(resource.data)
+        || coachOwnsStudent(userId)
+        || isPendingUnassignedStudent(resource.data)
+        || hasStudentIdentity(resource.data);
       allow update: if (
         coachOwnsStudent(userId)
         && !request.resource.data.diff(resource.data).affectedKeys()
@@ -179,21 +234,27 @@ service cloud.firestore {
     match /availabilities/{availabilityId} {
       allow create: if (
         isOwner(request.resource.data.studentId)
+        && studentWritesAssignedCoach(request.resource.data)
         && request.resource.data.keys().hasOnly([
-          'studentId', 'dayOfWeek', 'dayName', 'startTime', 'endTime', 'active', 'createdAt', 'updatedAt'
+          'studentId', 'coachId', 'dayOfWeek', 'dayName', 'startTime', 'endTime', 'active', 'createdAt', 'updatedAt'
         ])
-      ) || coachOwnsStudent(request.resource.data.studentId);
+      ) || (
+        coachOwnsStudent(request.resource.data.studentId)
+        && request.resource.data.coachId == request.auth.uid
+      );
       allow read: if isOwner(resource.data.studentId)
         || coachOwnsStudent(resource.data.studentId);
       allow update: if (
         isOwner(resource.data.studentId)
         && request.resource.data.studentId == resource.data.studentId
+        && coachIdIsImmutableOrProfileAssigned(resource.data.studentId)
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'dayOfWeek', 'dayName', 'startTime', 'endTime', 'active', 'updatedAt'
         ])
       ) || (
         coachOwnsStudent(resource.data.studentId)
         && request.resource.data.studentId == resource.data.studentId
+        && coachIdIsImmutableOrProfileAssigned(resource.data.studentId)
       );
       allow delete: if isOwner(resource.data.studentId)
         || coachOwnsStudent(resource.data.studentId);
@@ -207,7 +268,8 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/student_profiles/$(request.auth.uid)).data.coachId
           == request.resource.data.coachId;
       allow read: if coachOwnsBooking(resource.data)
-        || isOwner(resource.data.studentId);
+        || (resource.data.keys().hasAll(['studentId'])
+          && isOwner(resource.data.studentId));
       allow update: if (coachOwnsBooking(resource.data)
         && request.resource.data.coachId == resource.data.coachId
         && request.resource.data.studentId == resource.data.studentId) || (
@@ -289,21 +351,33 @@ service cloud.firestore {
 
     match /student_packages/{packageId} {
       allow read: if coachOwnsStudent(packageId) || isOwner(packageId) || hasStudentIdentity(resource.data);
-      allow write: if coachOwnsStudent(packageId);
+      allow create: if coachOwnsStudent(packageId)
+        && request.resource.data.studentId == packageId
+        && request.resource.data.coachId == request.auth.uid;
+      allow update: if coachOwnsStudent(packageId)
+        && request.resource.data.studentId == resource.data.studentId
+        && coachIdIsImmutableOrProfileAssigned(packageId);
+      allow delete: if coachOwnsStudent(packageId);
     }
 
     match /package_requests/{requestId} {
-      allow create: if isApprovedStudent()
+      allow create: if studentWritesAssignedCoach(request.resource.data)
         && isOwner(request.resource.data.studentId)
         && request.resource.data.status == 'pending'
-        && !request.resource.data.keys().hasAny(['coachId', 'coachName', 'reviewedAt']);
-      allow read: if coachOwnsStudent(resource.data.studentId) || isOwner(resource.data.studentId);
+        && !request.resource.data.keys().hasAny(['coachName', 'reviewedAt']);
+      allow read: if coachOwnsRecord(resource.data)
+        || (resource.data.keys().hasAll(['studentId'])
+          && coachOwnsStudent(resource.data.studentId))
+        || (resource.data.keys().hasAll(['studentId'])
+          && isOwner(resource.data.studentId));
       allow update: if (coachOwnsStudent(resource.data.studentId)
         && request.resource.data.studentId == resource.data.studentId
+        && coachIdIsImmutableOrProfileAssigned(resource.data.studentId)
         && validPackageRequestTransition()) || (
-        isApprovedStudent()
+        approvedStudentHasAssignedCoach()
         && isOwner(resource.data.studentId)
         && request.resource.data.studentId == request.auth.uid
+        && coachIdIsImmutableOrProfileAssigned(resource.data.studentId)
         && request.resource.data.status == 'pending'
         && resource.data.status == 'pending'
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
@@ -314,18 +388,20 @@ service cloud.firestore {
     }
 
     match /lesson_change_requests/{requestId} {
-      allow create: if isApprovedStudent()
+      allow create: if studentWritesAssignedCoach(request.resource.data)
         && isOwner(request.resource.data.studentId)
         && request.resource.data.status == 'pending'
-        && !request.resource.data.keys().hasAny(['coachId', 'coachName', 'reviewedAt'])
-        && isStringId(request.resource.data.lessonId)
-        && exists(/databases/$(database)/documents/lessons/$(request.resource.data.lessonId))
-        && get(/databases/$(database)/documents/lessons/$(request.resource.data.lessonId)).data.studentId == request.auth.uid;
-      allow read: if coachOwnsLessonRequest(resource.data)
-        || isOwner(resource.data.studentId);
-      allow update: if coachOwnsLessonRequest(resource.data) || (
-        isApprovedStudent()
+        && !request.resource.data.keys().hasAny(['coachName', 'reviewedAt'])
+        && lessonRequestMatchesAssignedCoach(request.resource.data);
+      allow read: if coachOwnsRecord(resource.data)
+        || coachOwnsLessonRequest(resource.data)
+        || (resource.data.keys().hasAll(['studentId'])
+          && isOwner(resource.data.studentId));
+      allow update: if (coachOwnsLessonRequest(resource.data)
+        && coachIdIsImmutableOrProfileAssigned(resource.data.studentId)) || (
+        approvedStudentHasAssignedCoach()
         && isOwner(resource.data.studentId)
+        && coachIdIsImmutableOrProfileAssigned(resource.data.studentId)
         && (
           (
             resource.data.status == 'pending'

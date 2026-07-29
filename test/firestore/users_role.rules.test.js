@@ -10,11 +10,15 @@ const {
   deleteField,
   deleteDoc,
   doc,
+  collection,
   getDoc,
+  getDocs,
+  query,
   serverTimestamp,
   setDoc,
   Timestamp,
   updateDoc,
+  where,
 } = require('firebase/firestore');
 
 const projectId = 'bodyhub-rules-test';
@@ -33,7 +37,11 @@ const studentUser = (overrides = {}) => ({
   ...overrides,
 });
 
-const context = (uid) => testEnv.authenticatedContext(uid).firestore();
+const context = (uid, claims = {}) =>
+  testEnv.authenticatedContext(uid, claims).firestore();
+const coachContext = (uid) => context(uid, { role: 'coach' });
+const adminContext = (uid) => context(uid, { role: 'admin' });
+const claimlessContext = (uid) => context(uid);
 const userRef = (db, uid) => doc(db, 'users', uid);
 
 async function seed(path, data) {
@@ -149,7 +157,7 @@ testAfterFix('Flutter clients cannot delete users documents', async () => {
   await seed('users/student-a', studentUser());
   await seed('users/coach-a', { uid: 'coach-a', role: 'coach' });
   await assertFails(deleteDoc(userRef(context('student-a'), 'student-a')));
-  await assertFails(deleteDoc(userRef(context('coach-a'), 'student-a')));
+  await assertFails(deleteDoc(userRef(coachContext('coach-a'), 'student-a')));
 });
 
 testAfterFix('student cannot update another users document', async () => {
@@ -170,7 +178,7 @@ testAfterFix('roleless user cannot perform a coach-only lesson write', async () 
   );
 });
 
-testAfterFix('seeded coach retains existing coach permissions and self profile updates', async () => {
+testAfterFix('claimed coach retains existing coach permissions and self profile updates', async () => {
   await seed('users/coach-a', {
     uid: 'coach-a',
     fullName: 'Coach A',
@@ -179,7 +187,7 @@ testAfterFix('seeded coach retains existing coach permissions and self profile u
     createdAt: serverTimestamp(),
   });
   await seed('student_profiles/student-a', { status: 'pending' });
-  const coachDb = context('coach-a');
+  const coachDb = coachContext('coach-a');
   await assertSucceeds(updateDoc(doc(coachDb, 'student_profiles', 'student-a'), {
     status: 'active',
     coachId: 'coach-a',
@@ -200,14 +208,14 @@ testAfterFix('coach approval assigns only their own coachId and cannot overwrite
   await seed('users/coach-a', { uid: 'coach-a', role: 'coach' });
   await seed('users/coach-b', { uid: 'coach-b', role: 'coach' });
   await seed('student_profiles/student-a', { status: 'pending' });
-  await assertFails(updateDoc(doc(context('coach-a'), 'student_profiles', 'student-a'), {
+  await assertFails(updateDoc(doc(coachContext('coach-a'), 'student_profiles', 'student-a'), {
     status: 'active', coachId: 'coach-b',
   }));
-  await assertSucceeds(updateDoc(doc(context('coach-a'), 'student_profiles', 'student-a'), {
+  await assertSucceeds(updateDoc(doc(coachContext('coach-a'), 'student_profiles', 'student-a'), {
     status: 'active', coachId: 'coach-a',
   }));
   await t.test('existing coachId cannot be changed', async () => {
-    await assertFails(updateDoc(doc(context('coach-b'), 'student_profiles', 'student-a'), {
+    await assertFails(updateDoc(doc(coachContext('coach-b'), 'student_profiles', 'student-a'), {
       coachId: 'coach-b',
     }));
   });
@@ -244,10 +252,10 @@ testAfterFix('pending or unassigned student cannot create a booking', async (t) 
 testAfterFix('coach can only create lessons with their own coachId', async () => {
   await seed('users/coach-a', { uid: 'coach-a', role: 'coach' });
   await seed('student_profiles/student-a', { status: 'active', coachId: 'coach-a' });
-  await assertSucceeds(setDoc(doc(context('coach-a'), 'lessons', 'lesson-a'), {
+  await assertSucceeds(setDoc(doc(coachContext('coach-a'), 'lessons', 'lesson-a'), {
     studentId: 'student-a', coachId: 'coach-a',
   }));
-  await assertFails(setDoc(doc(context('coach-a'), 'lessons', 'lesson-b'), {
+  await assertFails(setDoc(doc(coachContext('coach-a'), 'lessons', 'lesson-b'), {
     studentId: 'student-a', coachId: 'coach-b',
   }));
 });
@@ -257,7 +265,7 @@ testAfterFix('coach can update only a students sport fields', async () => {
   await seed('users/student-a', studentUser());
   await seed('student_profiles/student-a', { status: 'active', coachId: 'coach-a' });
   await assertSucceeds(
-    updateDoc(userRef(context('coach-a'), 'student-a'), {
+    updateDoc(userRef(coachContext('coach-a'), 'student-a'), {
       sportId: 'fitness',
       sportName: 'Fitness',
       updatedAt: serverTimestamp(),
@@ -268,7 +276,7 @@ testAfterFix('coach can update only a students sport fields', async () => {
 testAfterFix('coach cannot change sensitive or unrelated student users fields', async () => {
   await seed('users/coach-a', { uid: 'coach-a', role: 'coach' });
   await seed('users/student-a', studentUser());
-  const coachDb = context('coach-a');
+  const coachDb = coachContext('coach-a');
   await assertFails(
     updateDoc(userRef(coachDb, 'student-a'), { fullName: 'Unauthorized' }),
   );
@@ -286,7 +294,7 @@ testAfterFix('coach cannot change sensitive or unrelated student users fields', 
 testAfterFix('coach cannot add, change, or remove another users role', async (t) => {
   await seed('users/coach-a', { uid: 'coach-a', role: 'coach' });
   await seed('users/student-a', studentUser());
-  const coachDb = context('coach-a');
+  const coachDb = coachContext('coach-a');
   await t.test('add role', async () => {
     await assertFails(updateDoc(userRef(coachDb, 'student-a'), { role: 'coach' }));
   });
@@ -366,6 +374,91 @@ const slotData = (overrides = {}) => ({
   ...overrides,
 });
 
+testAfterFix('coach collection queries require token role and ownership constraints', async (t) => {
+  await seedRelationship();
+  await seed('bookings/booking-a', bookingData());
+  await seed('bookings/booking-b', bookingData({ studentId: 'student-b', coachId: 'coach-b' }));
+  await seed('lessons/lesson-a', lessonData());
+  await seed('lesson_change_requests/change-a', {
+    studentId: 'student-a', coachId: 'coach-a', lessonId: 'lesson-a', type: 'reschedule', status: 'pending', createdAt: when(), updatedAt: when(),
+  });
+  await seed('package_requests/package-a', {
+    studentId: 'student-a', coachId: 'coach-a', packageId: 'package-a', status: 'pending', requestedAt: when(), updatedAt: when(),
+  });
+  await seed('student_profiles/pending-unassigned', { status: 'pending' });
+  const coachA = coachContext('coach-a');
+  const coachB = coachContext('coach-b');
+  const admin = adminContext('admin-a');
+  const claimlessCoachMetadata = claimlessContext('coach-a');
+  const studentA = context('student-a');
+
+  await t.test('unconstrained dashboard and notification queries fail', async () => {
+    await assertFails(getDocs(collection(coachA, 'bookings')));
+    await assertFails(getDocs(collection(coachA, 'lesson_change_requests')));
+    await assertFails(getDocs(collection(coachA, 'package_requests')));
+    await assertFails(getDocs(query(
+      collection(coachA, 'lesson_change_requests'), where('status', '==', 'pending'),
+    )));
+    await assertFails(getDocs(query(
+      collection(coachA, 'package_requests'), where('status', '==', 'pending'),
+    )));
+  });
+
+  await t.test('pending onboarding is visible only to coach or admin claims', async () => {
+    await assertSucceeds(getDocs(query(
+      collection(coachA, 'student_profiles'), where('status', '==', 'pending'),
+    )));
+    await assertSucceeds(getDocs(query(
+      collection(admin, 'student_profiles'), where('status', '==', 'pending'),
+    )));
+    await assertFails(getDocs(query(
+      collection(studentA, 'student_profiles'), where('status', '==', 'pending'),
+    )));
+  });
+
+  await t.test('ownership-constrained coach queries succeed', async () => {
+    await assertSucceeds(getDocs(query(
+      collection(coachA, 'bookings'),
+      where('coachId', '==', 'coach-a'),
+    )));
+    await assertSucceeds(getDocs(query(
+      collection(coachA, 'package_requests'),
+      where('coachId', '==', 'coach-a'),
+      where('status', '==', 'pending'),
+    )));
+    await assertSucceeds(getDocs(query(
+      collection(coachA, 'lesson_change_requests'),
+      where('coachId', '==', 'coach-a'),
+      where('status', '==', 'pending'),
+    )));
+  });
+
+  await t.test('wrong ownership filters and Firestore role metadata do not grant access', async () => {
+    await assertFails(getDocs(query(
+      collection(coachB, 'bookings'),
+      where('coachId', '==', 'coach-a'),
+    )));
+    await assertFails(getDocs(query(
+      collection(coachB, 'package_requests'),
+      where('coachId', '==', 'coach-a'),
+      where('status', '==', 'pending'),
+    )));
+    await assertFails(getDocs(query(
+      collection(coachB, 'lesson_change_requests'),
+      where('coachId', '==', 'coach-a'),
+      where('status', '==', 'pending'),
+    )));
+    await assertFails(getDocs(query(
+      collection(claimlessCoachMetadata, 'bookings'),
+      where('coachId', '==', 'coach-a'),
+    )));
+    await assertFails(getDocs(query(
+      collection(claimlessCoachMetadata, 'student_profiles'),
+      where('status', '==', 'pending'),
+    )));
+  });
+});
+
 testAfterFix('booking ownership prevents student identity, coach, and status escalation', async (t) => {
   await seedRelationship();
   await seed('bookings/booking-a', bookingData());
@@ -391,7 +484,7 @@ testAfterFix('coach can mutate only bookings and lessons they own', async (t) =>
   await seed('bookings/booking-b', bookingData({ studentId: 'student-b', coachId: 'coach-b' }));
   await seed('lessons/lesson-a', lessonData());
   await seed('lessons/lesson-b', lessonData({ studentId: 'student-b', coachId: 'coach-b', bookingId: 'booking-b' }));
-  const coachA = context('coach-a');
+  const coachA = coachContext('coach-a');
   await t.test('own records succeed', async () => {
     await assertSucceeds(updateDoc(doc(coachA, 'bookings', 'booking-a'), { status: 'confirmed' }));
     await assertSucceeds(updateDoc(doc(coachA, 'lessons', 'lesson-a'), { status: 'completed' }));
@@ -408,7 +501,7 @@ testAfterFix('coach can mutate only bookings and lessons they own', async (t) =>
 testAfterFix('slot rules permit valid own booking locks and reject forged locks', async (t) => {
   await seedRelationship();
   await seed('bookings/booking-a', bookingData());
-  const coachA = context('coach-a');
+  const coachA = coachContext('coach-a');
   const studentA = context('student-a');
   await t.test('coach can create both deterministic resource slots for own booking', async () => {
     await assertSucceeds(setDoc(doc(coachA, 'booking_slots', 'coach_coach-a_1900000000000'), slotData()));
@@ -436,7 +529,7 @@ testAfterFix('slot updates and deletes cannot transfer or remove another booking
   await seed('booking_slots/coach_coach-b_1900000000000', slotData({
     bookingId: 'booking-b', studentId: 'student-b', coachId: 'coach-b', resourceId: 'coach-b',
   }));
-  const coachA = context('coach-a');
+  const coachA = coachContext('coach-a');
   await t.test('identity transfer fails', async () => {
     await assertFails(updateDoc(doc(coachA, 'booking_slots', 'coach_coach-a_1900000000000'), { bookingId: 'booking-b' }));
   });
@@ -453,16 +546,17 @@ testAfterFix('slot updates and deletes cannot transfer or remove another booking
 testAfterFix('package requests enforce pending creation and coach-owned transitions', async (t) => {
   await seedRelationship();
   const studentA = context('student-a');
-  const coachA = context('coach-a');
-  const coachB = context('coach-b');
+  const coachA = coachContext('coach-a');
+  const coachB = coachContext('coach-b');
   const request = (overrides = {}) => ({
     studentId: 'student-a', sportId: 'fitness', packageId: 'package-a', packageName: 'Monthly',
-    status: 'pending', requestedAt: serverTimestamp(), updatedAt: serverTimestamp(), ...overrides,
+    coachId: 'coach-a', status: 'pending', requestedAt: serverTimestamp(), updatedAt: serverTimestamp(), ...overrides,
   });
   await t.test('student creates only own pending request', async () => {
     await assertSucceeds(setDoc(doc(studentA, 'package_requests', 'request-a'), request()));
     await assertFails(setDoc(doc(studentA, 'package_requests', 'request-b'), request({ status: 'approved' })));
-    await assertFails(setDoc(doc(studentA, 'package_requests', 'request-c'), request({ coachId: 'coach-a' })));
+    await assertFails(setDoc(doc(studentA, 'package_requests', 'request-c'), request({ coachId: 'coach-b' })));
+    await assertFails(setDoc(doc(studentA, 'package_requests', 'request-d'), request({ coachId: null })));
   });
   await testEnv.clearFirestore();
   await seedRelationship();
@@ -486,8 +580,8 @@ testAfterFix('profile, package, availability, and lesson-request ownership is co
   await seed('student_packages/student-a', { studentId: 'student-a', totalLessons: 8, usedLessons: 0, remainingLessons: 8, paymentStatus: 'pending' });
   await seed('availabilities/student-a_1', { studentId: 'student-a', dayOfWeek: 1, dayName: 'Monday', startTime: '10:00', endTime: '11:00', active: true, createdAt: when() });
   await seed('lessons/lesson-a', lessonData());
-  const coachA = context('coach-a');
-  const coachB = context('coach-b');
+  const coachA = coachContext('coach-a');
+  const coachB = coachContext('coach-b');
   const studentA = context('student-a');
   await t.test('student cannot alter package counters or protected profile fields', async () => {
     await assertFails(updateDoc(doc(studentA, 'student_packages', 'student-a'), { remainingLessons: 99 }));
@@ -509,7 +603,10 @@ testAfterFix('profile, package, availability, and lesson-request ownership is co
     await seed('lessons/lesson-a', lessonData());
     await assertFails(updateDoc(doc(studentA, 'availabilities', 'student-a_1'), { studentId: 'student-b' }));
     await assertSucceeds(setDoc(doc(studentA, 'lesson_change_requests', 'change-a'), {
-      studentId: 'student-a', lessonId: 'lesson-a', type: 'reschedule', reason: 'Need another time', status: 'pending', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+      studentId: 'student-a', coachId: 'coach-a', lessonId: 'lesson-a', type: 'reschedule', reason: 'Need another time', status: 'pending', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
+    }));
+    await assertFails(setDoc(doc(studentA, 'lesson_change_requests', 'change-wrong-coach'), {
+      studentId: 'student-a', coachId: 'coach-b', lessonId: 'lesson-a', type: 'reschedule', reason: 'Need another time', status: 'pending', createdAt: serverTimestamp(), updatedAt: serverTimestamp(),
     }));
     await assertSucceeds(updateDoc(doc(coachA, 'lesson_change_requests', 'change-a'), { status: 'approved', coachId: 'coach-a', reviewedAt: serverTimestamp() }));
     await assertSucceeds(deleteDoc(doc(coachA, 'lesson_change_requests', 'change-a')));
@@ -518,5 +615,37 @@ testAfterFix('profile, package, availability, and lesson-request ownership is co
     });
     await assertFails(updateDoc(doc(coachB, 'lesson_change_requests', 'change-b'), { status: 'rejected' }));
     await assertFails(deleteDoc(doc(coachB, 'lesson_change_requests', 'change-b')));
+  });
+});
+
+testAfterFix('student-created ownership fields must match the active profile and lesson', async (t) => {
+  await seedRelationship();
+  await seed('lessons/lesson-a', lessonData());
+  const studentA = context('student-a');
+  const availability = (overrides = {}) => ({
+    studentId: 'student-a', coachId: 'coach-a', dayOfWeek: 1,
+    dayName: 'Monday', startTime: '10:00', endTime: '11:00', active: true,
+    createdAt: when(), ...overrides,
+  });
+  await t.test('availability uses the profile coachId', async () => {
+    await assertSucceeds(setDoc(doc(studentA, 'availabilities', 'student-a_1'), availability()));
+    await assertFails(setDoc(doc(studentA, 'availabilities', 'student-a_2'), availability({ coachId: 'coach-b' })));
+    await assertFails(updateDoc(doc(studentA, 'availabilities', 'student-a_1'), { coachId: 'coach-b' }));
+  });
+  await t.test('student and coach cannot transfer persisted ownership', async () => {
+    await seed('package_requests/owned-package', {
+      studentId: 'student-a', coachId: 'coach-a', status: 'pending',
+      sportId: 'fitness', packageId: 'package-a', packageName: 'Monthly',
+    });
+    await seed('student_packages/student-a', {
+      studentId: 'student-a', coachId: 'coach-a', remainingLessons: 8,
+    });
+    await assertFails(updateDoc(doc(studentA, 'package_requests', 'owned-package'), { coachId: 'coach-b' }));
+    await assertFails(updateDoc(doc(coachContext('coach-a'), 'student_packages', 'student-a'), { coachId: 'coach-b' }));
+    await seed('lesson_change_requests/owned-change', {
+      studentId: 'student-a', coachId: 'coach-a', lessonId: 'lesson-a',
+      type: 'reschedule', reason: 'Need another time', status: 'pending',
+    });
+    await assertFails(updateDoc(doc(studentA, 'lesson_change_requests', 'owned-change'), { coachId: 'coach-b' }));
   });
 });

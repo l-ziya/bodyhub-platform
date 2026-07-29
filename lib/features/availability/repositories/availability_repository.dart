@@ -3,7 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/availability_model.dart';
 
 class AvailabilityRepository {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  AvailabilityRepository({FirebaseFirestore? firestore})
+    : _firestore = firestore ?? FirebaseFirestore.instance;
+
+  final FirebaseFirestore _firestore;
 
   CollectionReference<Map<String, dynamic>> get _collection {
     return _firestore.collection('availabilities');
@@ -57,9 +60,20 @@ class AvailabilityRepository {
       availabilities: availabilities,
     );
 
-    final oldSnapshot = await _collection
-        .where('studentId', isEqualTo: studentId)
-        .get();
+    final results = await Future.wait([
+      _firestore.collection('student_profiles').doc(studentId).get(),
+      _collection.where('studentId', isEqualTo: studentId).get(),
+    ]);
+    final profile = results[0] as DocumentSnapshot<Map<String, dynamic>>;
+    final oldSnapshot = results[1] as QuerySnapshot<Map<String, dynamic>>;
+    if (!profile.exists) {
+      throw StateError('Öğrenci profili bulunamadı.');
+    }
+    final profileData = profile.data() ?? const <String, dynamic>{};
+    final coachId = profileData['coachId'] as String? ?? '';
+    if (profileData['status'] != 'active' || coachId.trim().isEmpty) {
+      throw StateError('Uygunluk kaydı için aktif bir koç ataması gerekli.');
+    }
 
     final batch = _firestore.batch();
 
@@ -74,7 +88,10 @@ class AvailabilityRepository {
 
       final documentReference = _collection.doc(documentId);
 
-      batch.set(documentReference, availability.toFirestore());
+      batch.set(documentReference, {
+        ...availability.toFirestore(),
+        'coachId': coachId,
+      });
     }
 
     await batch.commit();
