@@ -1,6 +1,7 @@
 {
   "firestore": {
-    "rules": "firestore.rules"
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
   },
   "emulators": {
     "firestore": {
@@ -73,7 +74,7 @@
       "android": {
         "default": {
           "projectId": "body-hub-10745",
-          "appId": "1:408260664139:android:2818101d9eda65ec67e6ce",
+          "appId": "1:408260664139:android:b6db8482ca16a6ce67e6ce",
           "fileOutput": "android/app/google-services.json"
         }
       },
@@ -81,7 +82,7 @@
         "lib/firebase_options.dart": {
           "projectId": "body-hub-10745",
           "configurations": {
-            "android": "1:408260664139:android:2818101d9eda65ec67e6ce",
+            "android": "1:408260664139:android:b6db8482ca16a6ce67e6ce",
             "web": "1:408260664139:web:aba63a70e197ac1f67e6ce"
           }
         }
