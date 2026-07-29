@@ -2,9 +2,14 @@
   "private": true,
   "scripts": {
     "test": "firebase emulators:exec --only firestore \"node --test test/firestore/users_role.rules.test.js\"",
+    "test:coach-ownership-migration": "firebase emulators:exec --only firestore \"node --test test/migrations/legacy_coach_ownership_migration.test.js\"",
+    "migrate:legacy-coach-ownership": "node tool/migrate_legacy_coach_ownership.js",
     "test:exploit": "set EXPECT_ROLE_EXPLOIT=true&& firebase emulators:exec --only firestore \"node --test test/firestore/users_role.rules.test.js\""
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.0"
+  },
+  "dependencies": {
+    "firebase-admin": "^14.2.0"
   }
 }
