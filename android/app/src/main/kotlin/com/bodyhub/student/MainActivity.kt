@@ -1,4 +1,4 @@
-package com.example.bodyhub_student
+package com.bodyhub.student
 
 import io.flutter.embedding.android.FlutterActivity
 
