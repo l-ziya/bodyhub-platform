@@ -33,5 +33,6 @@ Firestore document.
 4. Role removal clears or replaces the custom claim and forces a token refresh.
 
 The issuer must keep a durable audit record outside client-writable Firestore
-documents. Production provisioning code and production claim changes are out
-of scope for this repository package.
+documents. Use `tool/manage_custom_claim_roles.js` for controlled provisioning
+and revocation; its production and token-refresh procedure is documented in
+`docs/custom-claim-role-management.md`.
