@@ -14,6 +14,7 @@ const {
   getDoc,
   getDocs,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -37,10 +38,54 @@ const studentUser = (overrides = {}) => ({
   ...overrides,
 });
 
+testAfterFix('V2 approval transaction feasibility: fourteen related writes stay inside the Rules access-call budget', async () => {
+  await seedRelationship();
+  await seed('bookings/booking-a', bookingData());
+  await seed('package_requests/package-a', {
+    studentId: 'student-a', coachId: 'coach-a', packageId: 'package-a',
+    status: 'pending', requestedAt: when(), updatedAt: when(),
+  });
+
+  const coachDb = coachContext('coach-a');
+  await assertSucceeds(runTransaction(coachDb, async (transaction) => {
+    // A transaction read is deliberately completed before any of its writes.
+    const booking = await transaction.get(doc(coachDb, 'bookings', 'booking-a'));
+    assert.equal(booking.exists(), true);
+
+    // Five Coach and five Student busy-block equivalents, followed by the
+    // future Session, Booking Request, Entitlement, and roster equivalents.
+    for (var index = 0; index < 5; index += 1) {
+      transaction.set(
+        doc(coachDb, 'booking_slots', `coach_coach-a_${1900000000000 + index * 600000}`),
+        slotData({ blockStart: when(index * 10) }),
+      );
+      transaction.set(
+        doc(coachDb, 'booking_slots', `student_student-a_${1900000000000 + index * 600000}`),
+        slotData({
+          resourceType: 'student', resourceId: 'student-a', blockStart: when(index * 10),
+        }),
+      );
+    }
+    transaction.set(doc(coachDb, 'lessons', 'lesson-feasibility'), lessonData({ bookingId: 'booking-a' }));
+    transaction.update(doc(coachDb, 'bookings', 'booking-a'), { updatedAt: when() });
+    transaction.set(doc(coachDb, 'student_packages', 'student-a'), {
+      studentId: 'student-a', coachId: 'coach-a', packageId: 'package-a',
+      remainingLessons: 9,
+    });
+    transaction.update(doc(coachDb, 'package_requests', 'package-a'), { updatedAt: when() });
+  }));
+});
+
 const context = (uid, claims = {}) =>
   testEnv.authenticatedContext(uid, claims).firestore();
-const coachContext = (uid) => context(uid, { role: 'coach' });
-const adminContext = (uid) => context(uid, { role: 'admin' });
+const rolesClaim = (...roles) => ({
+  roles: Object.fromEntries(roles.map((role) => [role, true])),
+});
+const coachContext = (uid) => context(uid, rolesClaim('coach'));
+const adminContext = (uid) => context(uid, rolesClaim('admin'));
+const multiRoleContext = (uid) => context(uid, rolesClaim('coach', 'admin'));
+const studentClaimContext = (uid) => context(uid, rolesClaim('student'));
+const legacyCoachContext = (uid) => context(uid, { role: 'coach' });
 const claimlessContext = (uid) => context(uid);
 const userRef = (db, uid) => doc(db, 'users', uid);
 
@@ -202,6 +247,50 @@ testAfterFix('claimed coach retains existing coach permissions and self profile 
       updatedAt: serverTimestamp(),
     }),
   );
+});
+
+testAfterFix('canonical role maps are authoritative while the scalar claim remains a temporary fallback', async (t) => {
+  await seed('users/coach-a', { uid: 'coach-a', role: 'coach' });
+  await seed('student_profiles/student-a', { status: 'pending' });
+
+  await t.test('canonical coach claim can manage coaching', async () => {
+    await assertSucceeds(updateDoc(doc(coachContext('coach-a'), 'student_profiles', 'student-a'), {
+      status: 'active', coachId: 'coach-a',
+    }));
+  });
+
+  await testEnv.clearFirestore();
+  await seed('student_profiles/student-a', { status: 'pending' });
+  await t.test('admin and combined coach/admin claims can manage coaching', async () => {
+    await assertSucceeds(updateDoc(doc(adminContext('admin-a'), 'student_profiles', 'student-a'), {
+      status: 'active', coachId: 'admin-a',
+    }));
+    await testEnv.clearFirestore();
+    await seed('student_profiles/student-a', { status: 'pending' });
+    await assertSucceeds(updateDoc(doc(multiRoleContext('owner-a'), 'student_profiles', 'student-a'), {
+      status: 'active', coachId: 'owner-a',
+    }));
+  });
+
+  await testEnv.clearFirestore();
+  await seed('student_profiles/student-a', { status: 'pending' });
+  await t.test('legacy scalar coach stays compatible during the transition', async () => {
+    await assertSucceeds(updateDoc(doc(legacyCoachContext('legacy-coach'), 'student_profiles', 'student-a'), {
+      status: 'active', coachId: 'legacy-coach',
+    }));
+  });
+
+  await testEnv.clearFirestore();
+  await seed('users/metadata-coach', { uid: 'metadata-coach', role: 'coach' });
+  await seed('student_profiles/student-a', { status: 'pending' });
+  await t.test('student-only and claimless identities cannot gain coach access from users metadata', async () => {
+    await assertFails(updateDoc(doc(studentClaimContext('student-a'), 'student_profiles', 'student-a'), {
+      status: 'active', coachId: 'student-a',
+    }));
+    await assertFails(updateDoc(doc(claimlessContext('metadata-coach'), 'student_profiles', 'student-a'), {
+      status: 'active', coachId: 'metadata-coach',
+    }));
+  });
 });
 
 testAfterFix('coach approval assigns only their own coachId and cannot overwrite an assignment', async (t) => {

@@ -6,10 +6,33 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isCoach() {
+    // Canonical authorization source: Firebase Auth custom claims.
+    // The scalar `role` claim remains a temporary V1 compatibility fallback.
+    // Firestore `users/{uid}.role` is UI metadata and never authorization data.
+    function hasCanonicalRole(role) {
+      return signedIn()
+        && request.auth.token.keys().hasAll(['roles'])
+        && request.auth.token.roles is map
+        && request.auth.token.roles.keys().hasAll([role])
+        && request.auth.token.roles[role] == true;
+    }
+
+    function hasLegacyRole(role) {
       return signedIn()
         && request.auth.token.keys().hasAll(['role'])
-        && request.auth.token.role in ['coach', 'admin'];
+        && request.auth.token.role == role;
+    }
+
+    function hasRole(role) {
+      return hasCanonicalRole(role) || hasLegacyRole(role);
+    }
+
+    function canManageCoaching() {
+      return hasRole('coach') || hasRole('admin');
+    }
+
+    function isCoach() {
+      return canManageCoaching();
     }
 
     function isOwner(userId) {

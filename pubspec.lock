@@ -57,6 +57,13 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.13.1"
+  bodyhub_domain_contract:
+    dependency: "direct main"
+    description:
+      path: "../bodyhub_domain_contract"
+      relative: true
+    source: path
+    version: "0.1.0"
   boolean_selector:
     dependency: transitive
     description:
