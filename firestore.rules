@@ -64,6 +64,12 @@ service cloud.firestore {
         && data.coachId == request.auth.uid;
     }
 
+    function coachOwnsStudentRecord(data) {
+      return coachOwnsRecord(data)
+        && data.keys().hasAll(['studentId'])
+        && coachOwnsStudent(data.studentId);
+    }
+
     function isPendingUnassignedStudent(data) {
       return isCoach()
         && data.keys().hasAll(['status'])
@@ -284,7 +290,10 @@ service cloud.firestore {
     // sağlayan ortak takvim kilitleri. Öğrenciler sadece doluluk bilgisini
     // görür; koç saat taşıma ve onay işlemlerinde kilidi yönetir.
     match /booking_slots/{slotId} {
-      allow read: if isApprovedStudent() || isCoach();
+      allow read: if isApprovedStudent() || (
+        coachOwnsRecord(resource.data)
+        && coachOwnsBooking(resource.data)
+      );
       allow create: if isCoach()
         && request.resource.data.coachId == request.auth.uid
         && request.resource.data.bookingId is string
@@ -429,18 +438,42 @@ service cloud.firestore {
     // Öğrenci bu planları yalnızca kendi öğrenci kimliği üzerinden okuyabilir.
     // Oluşturma, güncelleme ve silme yalnızca yetkili koç/admin tarafından yapılır.
     match /nutrition_plans/{planId} {
-      allow read: if isCoach() || isOwner(resource.data.studentId);
-      allow write: if isCoach();
+      allow read: if signedIn()
+        && resource.data.studentId == request.auth.uid;
+      allow read: if coachOwnsStudentRecord(resource.data);
+      allow create: if isCoach()
+        && request.resource.data.coachId == request.auth.uid
+        && coachOwnsStudent(request.resource.data.studentId);
+      allow update: if coachOwnsStudentRecord(resource.data)
+        && request.resource.data.coachId == resource.data.coachId
+        && request.resource.data.studentId == resource.data.studentId;
+      allow delete: if coachOwnsStudentRecord(resource.data);
     }
 
     match /exercise_programs/{programId} {
-      allow read: if isCoach() || isOwner(resource.data.studentId);
-      allow write: if isCoach();
+      allow read: if signedIn()
+        && resource.data.studentId == request.auth.uid;
+      allow read: if coachOwnsStudentRecord(resource.data);
+      allow create: if isCoach()
+        && request.resource.data.coachId == request.auth.uid
+        && coachOwnsStudent(request.resource.data.studentId);
+      allow update: if coachOwnsStudentRecord(resource.data)
+        && request.resource.data.coachId == resource.data.coachId
+        && request.resource.data.studentId == resource.data.studentId;
+      allow delete: if coachOwnsStudentRecord(resource.data);
     }
 
     match /coach_notes/{lessonId} {
-      allow read: if isCoach() || isOwner(resource.data.studentId);
-      allow write: if isCoach();
+      allow read: if signedIn()
+        && resource.data.studentId == request.auth.uid;
+      allow read: if coachOwnsStudentRecord(resource.data);
+      allow create: if isCoach()
+        && request.resource.data.coachId == request.auth.uid
+        && coachOwnsStudent(request.resource.data.studentId);
+      allow update: if coachOwnsStudentRecord(resource.data)
+        && request.resource.data.coachId == resource.data.coachId
+        && request.resource.data.studentId == resource.data.studentId;
+      allow delete: if coachOwnsStudentRecord(resource.data);
     }
 
     match /sports/{sportId} {

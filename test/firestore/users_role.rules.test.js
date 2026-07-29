@@ -543,6 +543,83 @@ testAfterFix('slot updates and deletes cannot transfer or remove another booking
   });
 });
 
+testAfterFix('coach slot reads are limited to the slot and booking owner', async (t) => {
+  await seedRelationship();
+  await seed('bookings/booking-a', bookingData());
+  await seed('bookings/booking-b', bookingData({ studentId: 'student-b', coachId: 'coach-b' }));
+  await seed('booking_slots/coach_coach-a_1900000000000', slotData());
+  await seed('booking_slots/coach_coach-b_1900000000000', slotData({
+    bookingId: 'booking-b', studentId: 'student-b', coachId: 'coach-b', resourceId: 'coach-b',
+  }));
+  const coachA = coachContext('coach-a');
+  await t.test('own slot document can be read and another coach slot cannot', async () => {
+    await assertSucceeds(getDoc(doc(coachA, 'booking_slots', 'coach_coach-a_1900000000000')));
+    await assertFails(getDoc(doc(coachA, 'booking_slots', 'coach_coach-b_1900000000000')));
+  });
+  await t.test('unscoped collection query is denied', async () => {
+    await seedRelationship();
+    await seed('bookings/booking-a', bookingData());
+    await seed('booking_slots/coach_coach-a_1900000000000', slotData());
+    await assertSucceeds(getDocs(query(
+      collection(coachA, 'booking_slots'),
+      where('coachId', '==', 'coach-a'),
+    )));
+    await assertFails(getDocs(collection(coachA, 'booking_slots')));
+  });
+});
+
+testAfterFix('coach plans and notes require both assigned student and document coach ownership', async (t) => {
+  const managedData = (overrides = {}) => ({
+    studentId: 'student-a', coachId: 'coach-a', updatedAt: when(), ...overrides,
+  });
+  async function seedManagedContent() {
+    await seedRelationship();
+    await seed('nutrition_plans/nutrition-a', managedData());
+    await seed('nutrition_plans/nutrition-b', managedData({ studentId: 'student-b', coachId: 'coach-b' }));
+    await seed('exercise_programs/exercise-a', managedData());
+    await seed('exercise_programs/exercise-b', managedData({ studentId: 'student-b', coachId: 'coach-b' }));
+    await seed('coach_notes/lesson-a', managedData({ lessonId: 'lesson-a' }));
+    await seed('coach_notes/lesson-b', managedData({ lessonId: 'lesson-b', studentId: 'student-b', coachId: 'coach-b' }));
+  }
+  const coachA = coachContext('coach-a');
+  const coachB = coachContext('coach-b');
+  const studentA = context('student-a');
+  const ownedCollections = [
+    ['nutrition_plans', 'nutrition-a', 'nutrition-b'],
+    ['exercise_programs', 'exercise-a', 'exercise-b'],
+    ['coach_notes', 'lesson-a', 'lesson-b'],
+  ];
+  await t.test('related coach reads own documents through the scoped query', async () => {
+    await seedManagedContent();
+    for (const [name, ownId] of ownedCollections) {
+      await assertSucceeds(getDoc(doc(coachA, name, ownId)));
+      await assertSucceeds(getDocs(query(
+        collection(coachA, name),
+        where('studentId', '==', 'student-a'),
+        where('coachId', '==', 'coach-a'),
+      )));
+    }
+  });
+  await t.test('unrelated coach cannot read, write, or query another coach data', async () => {
+    await seedManagedContent();
+    for (const [name, ownId] of ownedCollections) {
+      await assertFails(getDoc(doc(coachB, name, ownId)));
+      await assertFails(updateDoc(doc(coachB, name, ownId), { updatedAt: serverTimestamp() }));
+      await assertFails(getDocs(collection(coachB, name)));
+    }
+    await assertFails(setDoc(doc(coachB, 'nutrition_plans', 'nutrition-for-student-a'), {
+      ...managedData({ coachId: 'coach-b' }),
+    }));
+  });
+  await t.test('student keeps read-only access to their own managed documents', async () => {
+    await seedManagedContent();
+    await assertSucceeds(getDoc(doc(studentA, 'nutrition_plans', 'nutrition-a')));
+    await assertSucceeds(getDoc(doc(studentA, 'exercise_programs', 'exercise-a')));
+    await assertSucceeds(getDoc(doc(studentA, 'coach_notes', 'lesson-a')));
+    await assertFails(updateDoc(doc(studentA, 'nutrition_plans', 'nutrition-a'), { title: 'Forged' }));
+  });
+});
+
 testAfterFix('package requests enforce pending creation and coach-owned transitions', async (t) => {
   await seedRelationship();
   const studentA = context('student-a');
