@@ -939,3 +939,29 @@ testAfterFix('V2 sports and public coach discovery profiles retain trusted owner
     }));
   });
 });
+
+testAfterFix('unreleased V2 sources remain default-deny for every client claim', async (t) => {
+  const paths = [
+    'booking_requests/request-a',
+    'sessions/session-a',
+    'coach_busy_blocks/coach-a_1900000000000',
+    'student_busy_blocks/student-a_1900000000000',
+    'student_entitlements/entitlement-a',
+    'coaches/coach-a/students/student-a',
+    'session_change_requests/change-a',
+    'coach_availability/availability-a',
+    'notifications/notification-a',
+    'payment_records/payment-a',
+    'package_catalog/package-a',
+  ];
+  const clients = [studentClaimContext('student-a'), coachContext('coach-a'), adminContext('admin-a')];
+  for (const client of clients) {
+    await t.test(`claim ${client.app.name} cannot read or write unreleased V2 sources`, async () => {
+      for (const item of paths) {
+        const reference = doc(client, ...item.split('/'));
+        await assertFails(getDoc(reference));
+        await assertFails(setDoc(reference, { schemaVersion: 2 }));
+      }
+    });
+  }
+});

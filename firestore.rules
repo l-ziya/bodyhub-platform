@@ -525,6 +525,53 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // V2 source records below deliberately remain closed until their owning
+    // transaction packages are released. Admin SDK trusted tooling bypasses
+    // Rules; neither Flutter client receives a speculative write path here.
+    match /booking_requests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /sessions/{sessionId} {
+      allow read, write: if false;
+    }
+
+    match /coach_busy_blocks/{blockId} {
+      allow read, write: if false;
+    }
+
+    match /student_busy_blocks/{blockId} {
+      allow read, write: if false;
+    }
+
+    match /student_entitlements/{entitlementId} {
+      allow read, write: if false;
+    }
+
+    match /coaches/{coachId}/students/{studentId} {
+      allow read, write: if false;
+    }
+
+    match /session_change_requests/{requestId} {
+      allow read, write: if false;
+    }
+
+    match /coach_availability/{availabilityId} {
+      allow read, write: if false;
+    }
+
+    match /notifications/{notificationId} {
+      allow read, write: if false;
+    }
+
+    match /payment_records/{paymentId} {
+      allow read, write: if false;
+    }
+
+    match /package_catalog/{packageId} {
+      allow read, write: if false;
+    }
+
     match /packages/{packageId} {
       allow read: if signedIn();
       allow write: if canManageCoaching();
