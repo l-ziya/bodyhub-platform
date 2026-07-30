@@ -1,0 +1,11 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Transaction tests exercise repository atomicity and deliberately run
+    // separately from the production Rules suite.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}

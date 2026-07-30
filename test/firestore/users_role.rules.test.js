@@ -940,19 +940,533 @@ testAfterFix('V2 sports and public coach discovery profiles retain trusted owner
   });
 });
 
+testAfterFix('V2 Coach schedule availability is self-owned and coordinate-safe', async (t) => {
+  const slotPath = (coachId, dayKey = '2026-08-03', slotId = '0900') =>
+    ['coach_schedule_slots', coachId, 'days', dayKey, 'slots', slotId];
+  const availability = (overrides = {}) => ({
+    active: true,
+    schemaVersion: 2,
+    ...overrides,
+  });
+
+  const seedActiveTemplate = () => seed('schedule_slot_templates/0900', {
+    slotId: '0900', sequence: 1, active: true, schemaVersion: 2,
+  });
+
+  await t.test('Coach can create, read, and close only an own canonical slot', async () => {
+    await seedActiveTemplate();
+    const coachA = coachContext('coach-a');
+    const reference = doc(coachA, ...slotPath('coach-a'));
+    await assertSucceeds(setDoc(reference, availability()));
+    await assertSucceeds(getDoc(reference));
+    await assertSucceeds(updateDoc(reference, { active: false }));
+  });
+
+  await t.test('cross-Coach, Student, invalid coordinate, and extra fields fail', async () => {
+    await seedActiveTemplate();
+    const coachA = coachContext('coach-a');
+    const coachB = coachContext('coach-b');
+    const student = studentClaimContext('student-a');
+    const ownReference = doc(coachA, ...slotPath('coach-a'));
+    await assertSucceeds(setDoc(ownReference, availability()));
+    await assertFails(updateDoc(
+      doc(coachB, ...slotPath('coach-a')),
+      { active: false },
+    ));
+    await assertFails(setDoc(
+      doc(student, ...slotPath('coach-a')),
+      availability(),
+    ));
+    await assertFails(setDoc(
+      doc(coachA, ...slotPath('coach-a', '2026-8-03')),
+      availability(),
+    ));
+    await assertFails(setDoc(
+      doc(coachA, ...slotPath('coach-a', '2026-08-03', '0910')),
+      availability(),
+    ));
+    await assertFails(setDoc(
+      doc(coachA, ...slotPath('coach-a', '2026-08-03', '1000')),
+      availability({ note: 'forged field' }),
+    ));
+  });
+
+  await t.test('schema and coordinate records cannot be rewritten or deleted', async () => {
+    await seedActiveTemplate();
+    const coachA = coachContext('coach-a');
+    const reference = doc(coachA, ...slotPath('coach-a'));
+    await assertSucceeds(setDoc(reference, availability()));
+    await assertFails(updateDoc(reference, { schemaVersion: 3 }));
+    await assertFails(updateDoc(reference, { note: 'forged field' }));
+    await assertFails(deleteDoc(reference));
+  });
+
+  await t.test('an inactive trusted template prevents new or reactivated availability', async () => {
+    await seed('schedule_slot_templates/1000', {
+      slotId: '1000', sequence: 2, active: false, schemaVersion: 2,
+    });
+    const coachA = coachContext('coach-a');
+    const reference = doc(coachA, ...slotPath('coach-a', '2026-08-03', '1000'));
+    await assertFails(setDoc(reference, availability()));
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      await setDoc(doc(admin.firestore(), ...slotPath('coach-a', '2026-08-03', '1000')), availability({ active: false }));
+    });
+    await assertFails(updateDoc(reference, { active: true }));
+  });
+});
+
+testAfterFix('V2 Student availability discovery is scoped to active Coach/day slots', async (t) => {
+  const slotPath = (coachId, dayKey = '2026-08-03', slotId = '0900') =>
+    ['coach_schedule_slots', coachId, 'days', dayKey, 'slots', slotId];
+  const availability = (active) => ({ active, schemaVersion: 2 });
+
+  const seedDay = () => testEnv.withSecurityRulesDisabled(async (admin) => {
+    const firestore = admin.firestore();
+    await setDoc(doc(firestore, ...slotPath('coach-a', '2026-08-03', '0900')), availability(true));
+    await setDoc(doc(firestore, ...slotPath('coach-a', '2026-08-03', '1000')), availability(false));
+    await setDoc(doc(firestore, ...slotPath('coach-b', '2026-08-03', '0900')), availability(true));
+    await setDoc(doc(firestore, ...slotPath('coach-a', '2026-8-03', '0900')), availability(true));
+  });
+
+  const student = studentClaimContext('student-a');
+  const coachA = coachContext('coach-a');
+  const claimless = claimlessContext('visitor-a');
+  const ownDay = collection(student, ...slotPath('coach-a').slice(0, -1));
+
+  await t.test('Student receives only active slots from the selected Coach/day', async () => {
+    await seedDay();
+    const active = await assertSucceeds(getDoc(
+      doc(student, ...slotPath('coach-a', '2026-08-03', '0900')),
+    ));
+    assert.equal(active.id, '0900');
+    await assertFails(getDocs(ownDay));
+    await assertFails(getDoc(doc(student, ...slotPath('coach-a', '2026-08-03', '1000'))));
+    await assertFails(getDoc(doc(student, ...slotPath('coach-a', '2026-8-03', '0900'))));
+  });
+
+  await t.test('Coach retains own-day read access while unauthenticated claims do not', async () => {
+    await seedDay();
+    await assertSucceeds(getDocs(collection(coachA, ...slotPath('coach-a').slice(0, -1))));
+    await assertFails(getDoc(
+      doc(claimless, ...slotPath('coach-a', '2026-08-03', '0900')),
+    ));
+  });
+
+  await t.test('Student cannot write availability or read a non-canonical private path', async () => {
+    await seedDay();
+    await assertFails(setDoc(
+      doc(student, ...slotPath('coach-a', '2026-08-04', '0900')),
+      availability(true),
+    ));
+    await assertFails(getDocs(query(
+      collection(student, ...slotPath('coach-a', '2026-8-03').slice(0, -1)),
+      where('active', '==', true),
+    )));
+  });
+});
+
+testAfterFix('V2 booking requests keep pending intent separate from scheduling', async (t) => {
+  const requestPath = (id = 'request-a') => ['booking_requests', id];
+  const requestData = (overrides = {}) => ({
+    studentId: 'student-a', coachId: 'coach-a', sportId: 'tennis',
+    dayKey: '2026-08-03', slotId: '0900', status: 'pending',
+    schemaVersion: 2, createdAt: serverTimestamp(), createdBy: 'student-a',
+    updatedAt: serverTimestamp(), updatedBy: 'student-a',
+    ...overrides,
+  });
+  const persistedRequest = (overrides = {}) => ({
+    ...requestData(overrides), createdAt: when(), updatedAt: when(),
+  });
+  const seedPrerequisites = async ({ templateActive = true, availabilityActive = true } = {}) => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const firestore = admin.firestore();
+      await setDoc(doc(firestore, 'sports', 'tennis'), {
+        active: true, schemaVersion: 2,
+      });
+      await setDoc(doc(firestore, 'coach_profiles', 'coach-a'), {
+        active: true, bookingEnabled: true, specialtyIds: ['tennis'], schemaVersion: 2,
+      });
+      await setDoc(doc(firestore, 'schedule_slot_templates', '0900'), {
+        slotId: '0900', sequence: 1, active: templateActive, schemaVersion: 2,
+      });
+      await setDoc(doc(firestore,
+        'coach_schedule_slots', 'coach-a', 'days', '2026-08-03', 'slots', '0900',
+      ), { active: availabilityActive, schemaVersion: 2 });
+    });
+  };
+  const studentA = studentClaimContext('student-a');
+  const studentB = studentClaimContext('student-b');
+  const coachA = coachContext('coach-a');
+  const coachB = coachContext('coach-b');
+
+  await t.test('Student creates only own pending intent and no Session, lock, or entitlement', async () => {
+    await seedPrerequisites();
+    await assertSucceeds(setDoc(doc(studentA, ...requestPath()), requestData()));
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const firestore = admin.firestore();
+      assert.equal((await getDocs(collection(firestore, 'sessions'))).size, 0);
+      assert.equal((await getDocs(collection(firestore, 'coach_busy_blocks'))).size, 0);
+      assert.equal((await getDocs(collection(firestore, 'student_busy_blocks'))).size, 0);
+      assert.equal((await getDocs(collection(firestore, 'student_entitlements'))).size, 0);
+    });
+  });
+
+  await t.test('create requires active availability, template, and canonical fields', async () => {
+    await seedPrerequisites({ availabilityActive: false });
+    await assertFails(setDoc(doc(studentA, ...requestPath()), requestData()));
+    await testEnv.clearFirestore();
+    await seedPrerequisites({ templateActive: false });
+    await assertFails(setDoc(doc(studentA, ...requestPath()), requestData()));
+    await testEnv.clearFirestore();
+    await seedPrerequisites();
+    await assertFails(setDoc(doc(studentA, ...requestPath()), requestData({ dayKey: '2026-8-03' })));
+    await assertFails(setDoc(doc(studentA, ...requestPath()), requestData({ slotId: '0910' })));
+    await assertFails(setDoc(doc(studentA, ...requestPath()), requestData({ note: 'forged' })));
+  });
+
+  await t.test('cross-Student create and invalid lifecycle values are denied', async () => {
+    await seedPrerequisites();
+    await assertFails(setDoc(doc(studentB, ...requestPath()), requestData()));
+    await assertFails(setDoc(doc(studentA, ...requestPath('request-approved')), requestData({ status: 'approved' })));
+    await assertFails(setDoc(doc(studentA, ...requestPath('request-rejected')), requestData({ status: 'rejected' })));
+  });
+
+  await t.test('Student may only withdraw own pending request', async () => {
+    await seed('booking_requests/request-a', persistedRequest());
+    await assertSucceeds(updateDoc(doc(studentA, ...requestPath()), {
+      status: 'withdrawn', updatedAt: serverTimestamp(), updatedBy: 'student-a',
+    }));
+    await assertFails(updateDoc(doc(studentA, ...requestPath()), {
+      status: 'rejected', updatedAt: serverTimestamp(), updatedBy: 'student-a',
+    }));
+  });
+
+  await t.test('Coach may only reject own pending request', async () => {
+    await seed('booking_requests/request-a', persistedRequest());
+    await assertSucceeds(updateDoc(doc(coachA, ...requestPath()), {
+      status: 'rejected', updatedAt: serverTimestamp(), updatedBy: 'coach-a',
+    }));
+    await seed('booking_requests/request-b', persistedRequest());
+    await assertFails(updateDoc(doc(coachB, ...requestPath('request-b')), {
+      status: 'rejected', updatedAt: serverTimestamp(), updatedBy: 'coach-b',
+    }));
+    await seed('booking_requests/request-c', persistedRequest());
+    await assertFails(updateDoc(doc(coachA, ...requestPath('request-c')), {
+      status: 'withdrawn', updatedAt: serverTimestamp(), updatedBy: 'coach-a',
+    }));
+  });
+
+  await t.test('immutable coordinates, approval, foreign updates, and delete are denied', async () => {
+    await seed('booking_requests/request-a', persistedRequest());
+    await assertFails(updateDoc(doc(studentA, ...requestPath()), {
+      dayKey: '2026-08-04', updatedAt: serverTimestamp(), updatedBy: 'student-a',
+    }));
+    await assertFails(updateDoc(doc(coachA, ...requestPath()), {
+      status: 'approved', updatedAt: serverTimestamp(), updatedBy: 'coach-a',
+    }));
+    await assertFails(updateDoc(doc(studentB, ...requestPath()), {
+      status: 'withdrawn', updatedAt: serverTimestamp(), updatedBy: 'student-b',
+    }));
+    await assertFails(deleteDoc(doc(studentA, ...requestPath())));
+    await assertFails(deleteDoc(doc(coachA, ...requestPath())));
+  });
+
+  await t.test('scoped Student and Coach repository query shapes are permitted', async () => {
+    await seed('booking_requests/request-a', persistedRequest());
+    await assertSucceeds(getDocs(query(
+      collection(studentA, 'booking_requests'), where('studentId', '==', 'student-a'),
+    )));
+    await assertSucceeds(getDocs(query(
+      collection(coachA, 'booking_requests'),
+      where('coachId', '==', 'coach-a'), where('status', '==', 'pending'),
+    )));
+    await assertFails(getDocs(collection(studentA, 'booking_requests')));
+    await assertFails(getDocs(collection(coachB, 'booking_requests')));
+  });
+});
+
+testAfterFix('V2 Coach approval atomically creates one Session and two reservation coordinates', async (t) => {
+  const dayKey = '2026-08-03';
+  const slotId = '0900';
+  const seedApprovalPrerequisites = async (requestId, studentId = 'student-a') => {
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const firestore = admin.firestore();
+      await setDoc(doc(firestore, 'schedule_slot_templates', slotId), {
+        slotId, sequence: 1, active: true, schemaVersion: 2,
+      });
+      await setDoc(doc(
+        firestore, 'coach_schedule_slots', 'coach-a', 'days', dayKey, 'slots', slotId,
+      ), { active: true, schemaVersion: 2 });
+      await setDoc(doc(firestore, 'student_entitlements', studentId), {
+        studentId, packageId: 'package-tennis', sportId: 'tennis',
+        packageType: 'tenSession', totalSessions: 10, remainingSessions: 10,
+        validityDays: 42, status: 'active', schemaVersion: 2,
+        createdAt: when(), createdBy: 'coach-a', updatedAt: when(), updatedBy: 'coach-a',
+      });
+      await setDoc(doc(firestore, 'booking_requests', requestId), {
+        studentId, coachId: 'coach-a', sportId: 'tennis', dayKey, slotId,
+        status: 'pending', schemaVersion: 2,
+        createdAt: when(), createdBy: studentId,
+        updatedAt: when(), updatedBy: studentId,
+      });
+    });
+  };
+  const approve = (db, requestId, studentId = 'student-a') => runTransaction(db, async (tx) => {
+    const requestRef = doc(db, 'booking_requests', requestId);
+    const sessionRef = doc(db, 'sessions', requestId);
+    const coachSlotRef = doc(
+      db, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', slotId,
+    );
+    const studentSlotRef = doc(
+      db, 'student_session_slots', studentId, 'days', dayKey, 'slots', slotId,
+    );
+    const entitlementRef = doc(db, 'student_entitlements', studentId);
+    const rosterRef = doc(db, 'coaches', 'coach-a', 'students', studentId);
+    const availabilityRef = doc(
+      db, 'coach_schedule_slots', 'coach-a', 'days', dayKey, 'slots', slotId,
+    );
+    const [request, availability] = await Promise.all([
+      tx.get(requestRef), tx.get(availabilityRef),
+    ]);
+    if (!request.exists() || !availability.data().active) {
+      throw new Error('unavailable');
+    }
+    const audit = { schemaVersion: 2, createdAt: serverTimestamp(), createdBy: 'coach-a' };
+    tx.update(requestRef, {
+      status: 'approved', sessionId: requestId,
+      updatedAt: serverTimestamp(), updatedBy: 'coach-a',
+    });
+    tx.set(sessionRef, {
+      bookingRequestId: requestId, studentId, coachId: 'coach-a', sportId: 'tennis',
+      dayKey, slotId, entitlementId: studentId, status: 'scheduled', ...audit,
+      updatedAt: serverTimestamp(), updatedBy: 'coach-a',
+    });
+    tx.set(coachSlotRef, {
+      sessionId: requestId, bookingRequestId: requestId, ownerId: 'coach-a',
+      counterpartId: studentId, ...audit,
+    });
+    tx.set(studentSlotRef, {
+      sessionId: requestId, bookingRequestId: requestId, ownerId: studentId,
+      counterpartId: 'coach-a', ...audit,
+    });
+    tx.update(entitlementRef, {
+      remainingSessions: 9, lastConsumedSessionId: requestId,
+      updatedAt: serverTimestamp(), updatedBy: 'coach-a',
+    });
+    tx.set(rosterRef, {
+      coachId: 'coach-a', studentId, bookingRequestId: requestId,
+      ...audit,
+    });
+  });
+  const coachA = coachContext('coach-a');
+  const coachB = coachContext('coach-b');
+  const studentA = studentClaimContext('student-a');
+
+  await t.test('matching full transaction succeeds and persists the complete graph', async () => {
+    await testEnv.clearFirestore();
+    await seedApprovalPrerequisites('request-a');
+    await assertSucceeds(approve(coachA, 'request-a'));
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const firestore = admin.firestore();
+      assert.equal((await getDoc(doc(firestore, 'booking_requests', 'request-a'))).data().status, 'approved');
+      assert.equal((await getDoc(doc(firestore, 'sessions', 'request-a'))).data().bookingRequestId, 'request-a');
+      assert.equal((await getDoc(doc(firestore, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', slotId))).data().sessionId, 'request-a');
+      assert.equal((await getDoc(doc(firestore, 'student_session_slots', 'student-a', 'days', dayKey, 'slots', slotId))).data().sessionId, 'request-a');
+    });
+  });
+
+  await t.test('Student, foreign Coach, and partial approval writes are denied', async () => {
+    await testEnv.clearFirestore();
+    await seedApprovalPrerequisites('request-a');
+    await assertFails(approve(studentA, 'request-a'));
+    await assertFails(approve(coachB, 'request-a'));
+    await assertFails(setDoc(doc(coachA, 'sessions', 'request-a'), {
+      bookingRequestId: 'request-a', studentId: 'student-a', coachId: 'coach-a',
+      sportId: 'tennis', dayKey, slotId, entitlementId: 'student-a', status: 'scheduled', schemaVersion: 2,
+      createdAt: serverTimestamp(), createdBy: 'coach-a',
+      updatedAt: serverTimestamp(), updatedBy: 'coach-a',
+    }));
+  });
+
+  await t.test('competing approval keeps the loser entirely unmodified', async () => {
+    await testEnv.clearFirestore();
+    await seedApprovalPrerequisites('request-a', 'student-a');
+    await seedApprovalPrerequisites('request-b', 'student-b');
+    const outcomes = await Promise.allSettled([
+      approve(coachA, 'request-a', 'student-a'),
+      approve(coachA, 'request-b', 'student-b'),
+    ]);
+    assert.equal(outcomes.filter((result) => result.status === 'fulfilled').length, 1);
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const firestore = admin.firestore();
+      const requests = await Promise.all([
+        getDoc(doc(firestore, 'booking_requests', 'request-a')),
+        getDoc(doc(firestore, 'booking_requests', 'request-b')),
+      ]);
+      assert.equal(requests.filter((snapshot) => snapshot.data().status === 'approved').length, 1);
+      assert.equal(requests.filter((snapshot) => snapshot.data().status === 'pending').length, 1);
+      assert.equal((await getDocs(collection(firestore, 'sessions'))).size, 1);
+    });
+  });
+
+  await t.test('Coach cancellation and normal approval leave only a complete final reservation state', async () => {
+    await testEnv.clearFirestore();
+    await seedApprovalPrerequisites('request-a', 'student-a');
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const firestore = admin.firestore();
+      const audit = { schemaVersion: 2, createdAt: when(), createdBy: 'coach-a', updatedAt: when(), updatedBy: 'coach-a' };
+      await setDoc(doc(firestore, 'sessions', 'cancel-source'), {
+        bookingRequestId: 'legacy-source', studentId: 'student-a', coachId: 'coach-a', sportId: 'tennis',
+        dayKey, slotId, entitlementId: 'student-a', status: 'scheduled', ...audit,
+      });
+      await setDoc(doc(firestore, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', slotId), {
+        sessionId: 'cancel-source', bookingRequestId: 'legacy-source', ownerId: 'coach-a', counterpartId: 'student-a', ...audit,
+      });
+      await setDoc(doc(firestore, 'student_session_slots', 'student-a', 'days', dayKey, 'slots', slotId), {
+        sessionId: 'cancel-source', bookingRequestId: 'legacy-source', ownerId: 'student-a', counterpartId: 'coach-a', ...audit,
+      });
+    });
+    const cancel = runTransaction(coachA, async (tx) => {
+      const source = doc(coachA, 'sessions', 'cancel-source');
+      await tx.get(source);
+      tx.update(source, { status: 'coach_cancelled', updatedAt: serverTimestamp(), updatedBy: 'coach-a' });
+      tx.delete(doc(coachA, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', slotId));
+      tx.delete(doc(coachA, 'student_session_slots', 'student-a', 'days', dayKey, 'slots', slotId));
+    });
+    await Promise.allSettled([cancel, approve(coachA, 'request-a')]);
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const firestore = admin.firestore();
+      const request = await getDoc(doc(firestore, 'booking_requests', 'request-a'));
+      const approved = request.data().status === 'approved';
+      const replacement = await getDoc(doc(firestore, 'sessions', 'request-a'));
+      const coachSlot = await getDoc(doc(firestore, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', slotId));
+      const studentSlot = await getDoc(doc(firestore, 'student_session_slots', 'student-a', 'days', dayKey, 'slots', slotId));
+      assert.equal(replacement.exists(), approved);
+      assert.equal(coachSlot.exists(), approved);
+      assert.equal(studentSlot.exists(), approved);
+      assert.equal((await getDoc(doc(firestore, 'student_entitlements', 'student-a'))).data().remainingSessions, approved ? 9 : 10);
+    });
+  });
+});
+
+testAfterFix('V2 entitlement activation is roster-scoped and catalogue-backed', async (t) => {
+  const seed = async (active = true) => testEnv.withSecurityRulesDisabled(async (admin) => {
+    const firestore = admin.firestore();
+    await setDoc(doc(firestore, 'coaches', 'coach-a', 'students', 'student-a'), {
+      coachId: 'coach-a', studentId: 'student-a', bookingRequestId: 'request-a',
+      schemaVersion: 2, createdAt: when(), createdBy: 'coach-a',
+    });
+    await setDoc(doc(firestore, 'package_catalog', 'package-tennis'), {
+      packageId: 'package-tennis', sportId: 'tennis', packageType: 'tenSession',
+      totalSessions: 10, validityDays: 42, active, schemaVersion: 2,
+    });
+  });
+  const activation = {
+    studentId: 'student-a', packageId: 'package-tennis', sportId: 'tennis',
+    packageType: 'tenSession', totalSessions: 10, remainingSessions: 10,
+    validityDays: 42, status: 'active', schemaVersion: 2,
+    createdAt: serverTimestamp(), createdBy: 'coach-a',
+    updatedAt: serverTimestamp(), updatedBy: 'coach-a',
+  };
+  await t.test('own roster Coach can activate exactly the active catalogue contract', async () => {
+    await testEnv.clearFirestore(); await seed();
+    await assertSucceeds(setDoc(doc(coachContext('coach-a'), 'student_entitlements', 'student-a'), activation));
+  });
+  await t.test('foreign Coach, Student, inactive catalogue, and inflated count are denied', async () => {
+    await testEnv.clearFirestore(); await seed();
+    await assertFails(setDoc(doc(coachContext('coach-b'), 'student_entitlements', 'student-a'), activation));
+    await assertFails(setDoc(doc(studentClaimContext('student-a'), 'student_entitlements', 'student-a'), activation));
+    await assertFails(setDoc(doc(coachContext('coach-a'), 'student_entitlements', 'student-a'), {
+      ...activation, totalSessions: 11, remainingSessions: 11,
+    }));
+    await testEnv.clearFirestore(); await seed(false);
+    await assertFails(setDoc(doc(coachContext('coach-a'), 'student_entitlements', 'student-a'), activation));
+  });
+});
+
+testAfterFix('V2 cancellation and coach-only make-up preserve entitlement ownership', async (t) => {
+  const dayKey = '2026-08-03';
+  const seedSession = async (status = 'scheduled') => testEnv.withSecurityRulesDisabled(async (admin) => {
+    const db = admin.firestore();
+    const audit = { schemaVersion: 2, createdAt: when(), createdBy: 'coach-a', updatedAt: when(), updatedBy: 'coach-a' };
+    await setDoc(doc(db, 'schedule_slot_templates', '1000'), { slotId: '1000', sequence: 2, active: true, schemaVersion: 2 });
+    await setDoc(doc(db, 'coach_schedule_slots', 'coach-a', 'days', dayKey, 'slots', '1000'), { active: true, schemaVersion: 2 });
+    await setDoc(doc(db, 'coaches', 'coach-a', 'students', 'student-a'), { coachId: 'coach-a', studentId: 'student-a', bookingRequestId: 'request-a', schemaVersion: 2, createdAt: when(), createdBy: 'coach-a' });
+    await setDoc(doc(db, 'student_entitlements', 'student-a'), { studentId: 'student-a', packageId: 'package-a', sportId: 'tennis', packageType: 'tenSession', totalSessions: 10, remainingSessions: 9, validityDays: 42, status: 'active', ...audit });
+    await setDoc(doc(db, 'sessions', 'source-a'), { bookingRequestId: 'request-a', studentId: 'student-a', coachId: 'coach-a', sportId: 'tennis', dayKey, slotId: '0900', entitlementId: 'student-a', status, ...audit });
+    await setDoc(doc(db, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', '0900'), { sessionId: 'source-a', bookingRequestId: 'request-a', ownerId: 'coach-a', counterpartId: 'student-a', schemaVersion: 2, createdAt: when(), createdBy: 'coach-a' });
+    await setDoc(doc(db, 'student_session_slots', 'student-a', 'days', dayKey, 'slots', '0900'), { sessionId: 'source-a', bookingRequestId: 'request-a', ownerId: 'student-a', counterpartId: 'coach-a', schemaVersion: 2, createdAt: when(), createdBy: 'coach-a' });
+  });
+  const cancel = (db, status, actor = 'coach-a') => runTransaction(db, async (tx) => {
+    const source = doc(db, 'sessions', 'source-a');
+    tx.update(source, { status, updatedAt: serverTimestamp(), updatedBy: actor });
+    tx.delete(doc(db, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', '0900'));
+    tx.delete(doc(db, 'student_session_slots', 'student-a', 'days', dayKey, 'slots', '0900'));
+  });
+  await t.test('Coach cancel releases reservations without refunding entitlement', async () => {
+    await seedSession();
+    await assertSucceeds(cancel(coachContext('coach-a'), 'coach_cancelled'));
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = admin.firestore();
+      assert.equal((await getDoc(doc(db, 'sessions', 'source-a'))).data().status, 'coach_cancelled');
+      assert.equal((await getDoc(doc(db, 'student_entitlements', 'student-a'))).data().remainingSessions, 9);
+      assert.equal((await getDoc(doc(db, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', '0900'))).exists(), false);
+    });
+  });
+  await t.test('Student and foreign Coach cannot cancel; Admin can mark system cancellation', async () => {
+    await seedSession();
+    await assertFails(cancel(studentClaimContext('student-a'), 'coach_cancelled'));
+    await assertFails(cancel(coachContext('coach-b'), 'coach_cancelled'));
+    await assertSucceeds(cancel(adminContext('admin-a'), 'system_cancelled', 'admin-a'));
+  });
+  await t.test('only one make-up may atomically link a cancelled source without entitlement mutation', async () => {
+    await seedSession('coach_cancelled');
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = admin.firestore();
+      await deleteDoc(doc(db, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', '0900'));
+      await deleteDoc(doc(db, 'student_session_slots', 'student-a', 'days', dayKey, 'slots', '0900'));
+    });
+    const coachA = coachContext('coach-a');
+    const makeUp = (id, options = {}) => runTransaction(coachA, async (tx) => {
+      const source = doc(coachA, 'sessions', 'source-a');
+      await tx.get(source);
+      const audit = { schemaVersion: 2, createdAt: serverTimestamp(), createdBy: 'coach-a', updatedAt: serverTimestamp(), updatedBy: 'coach-a' };
+      tx.set(doc(coachA, 'sessions', id), { bookingRequestId: 'request-a', studentId: 'student-a', coachId: 'coach-a', sportId: 'tennis', dayKey, slotId: '1000', entitlementId: 'student-a', sourceSessionId: 'source-a', status: 'scheduled', ...audit });
+      if (!options.skipCoachReservation) tx.set(doc(coachA, 'coach_session_slots', 'coach-a', 'days', dayKey, 'slots', '1000'), { sessionId: id, bookingRequestId: 'request-a', ownerId: 'coach-a', counterpartId: 'student-a', schemaVersion: 2, createdAt: serverTimestamp(), createdBy: 'coach-a' });
+      if (!options.skipStudentReservation) tx.set(doc(coachA, 'student_session_slots', 'student-a', 'days', dayKey, 'slots', '1000'), { sessionId: id, bookingRequestId: 'request-a', ownerId: 'student-a', counterpartId: 'coach-a', schemaVersion: 2, createdAt: serverTimestamp(), createdBy: 'coach-a' });
+      if (!options.skipSourceUpdate) tx.update(source, { makeUpSessionId: id, updatedAt: serverTimestamp(), updatedBy: 'coach-a' });
+      if (options.mutateEntitlement) tx.update(doc(coachA, 'student_entitlements', 'student-a'), options.mutateEntitlement);
+    });
+    await assertFails(makeUp('missing-coach', { skipCoachReservation: true }));
+    await assertFails(makeUp('missing-student', { skipStudentReservation: true }));
+    await assertFails(makeUp('missing-source-update', { skipSourceUpdate: true }));
+    await assertFails(makeUp('mutates-entitlement', { mutateEntitlement: { remainingSessions: 8, updatedAt: serverTimestamp(), updatedBy: 'coach-a', lastConsumedSessionId: 'mutates-entitlement' } }));
+    const race = await Promise.allSettled([makeUp('makeup-a'), makeUp('makeup-b')]);
+    assert.equal(race.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(race.filter((result) => result.status === 'rejected').length, 1);
+    await testEnv.withSecurityRulesDisabled(async (admin) => {
+      const db = admin.firestore();
+      assert.equal((await getDoc(doc(db, 'student_entitlements', 'student-a'))).data().remainingSessions, 9);
+      assert.equal((await getDocs(collection(db, 'sessions'))).size, 2);
+      const source = (await getDoc(doc(db, 'sessions', 'source-a'))).data();
+      const sourceId = source.makeUpSessionId;
+      assert.equal(typeof sourceId, 'string');
+    });
+    await assertFails(updateDoc(doc(coachA, 'sessions', 'source-a'), { makeUpSessionId: deleteField(), updatedAt: serverTimestamp(), updatedBy: 'coach-a' }));
+    await assertFails(updateDoc(doc(coachA, 'sessions', 'source-a'), { makeUpSessionId: 'relinked', updatedAt: serverTimestamp(), updatedBy: 'coach-a' }));
+  });
+});
+
 testAfterFix('unreleased V2 sources remain default-deny for every client claim', async (t) => {
   const paths = [
-    'booking_requests/request-a',
+    'schedule_slot_templates/0900',
     'sessions/session-a',
     'coach_busy_blocks/coach-a_1900000000000',
     'student_busy_blocks/student-a_1900000000000',
-    'student_entitlements/entitlement-a',
-    'coaches/coach-a/students/student-a',
     'session_change_requests/change-a',
     'coach_availability/availability-a',
     'notifications/notification-a',
     'payment_records/payment-a',
-    'package_catalog/package-a',
   ];
   const clients = [studentClaimContext('student-a'), coachContext('coach-a'), adminContext('admin-a')];
   for (const client of clients) {

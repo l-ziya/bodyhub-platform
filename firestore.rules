@@ -31,6 +31,13 @@ service cloud.firestore {
       return hasRole('student');
     }
 
+    // New V2 source collections require the canonical claim map. Legacy
+    // scalar claims remain available to V1 compatibility rules only.
+    function hasCanonicalStudentRole() {
+      return signedIn()
+        && request.auth.token.roles.student == true;
+    }
+
     function isCoach() {
       return hasRole('coach');
     }
@@ -53,6 +60,476 @@ service cloud.firestore {
           'displayName', 'bio', 'photoUrl', 'specialtyIds', 'updatedAt', 'updatedBy'
         ])
         && request.resource.data.updatedBy == request.auth.uid;
+    }
+
+    function isCanonicalScheduleSlotId(slotId) {
+      return slotId in [
+        '0800', '0900', '1000', '1100', '1200', '1300', '1400',
+        '1500', '1600', '1700', '1800', '1900', '2000'
+      ];
+    }
+
+    // Rules enforce the one canonical wire form. Full Gregorian validation is
+    // deliberately performed by the shared Flutter/domain contract.
+    function isCanonicalScheduleDayKey(dayKey) {
+      return dayKey is string
+        && dayKey.matches('^[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+
+    function activeScheduleTemplate(slotId) {
+      return exists(/databases/$(database)/documents/schedule_slot_templates/$(slotId))
+        && get(/databases/$(database)/documents/schedule_slot_templates/$(slotId)).data.slotId == slotId
+        && get(/databases/$(database)/documents/schedule_slot_templates/$(slotId)).data.active == true
+        && get(/databases/$(database)/documents/schedule_slot_templates/$(slotId)).data.schemaVersion == 2;
+    }
+
+    function validCoachScheduleSlotFields(data) {
+      return data.keys().hasOnly(['active', 'schemaVersion'])
+        && data.keys().hasAll(['active', 'schemaVersion'])
+        && data.active is bool
+        && data.schemaVersion == 2;
+    }
+
+    function activeV2Sport(sportId) {
+      return exists(/databases/$(database)/documents/sports/$(sportId))
+        && get(/databases/$(database)/documents/sports/$(sportId)).data.active == true
+        && get(/databases/$(database)/documents/sports/$(sportId)).data.schemaVersion == 2;
+    }
+
+    function activeBookingCoachForSport(coachId, sportId) {
+      return exists(/databases/$(database)/documents/coach_profiles/$(coachId))
+        && get(/databases/$(database)/documents/coach_profiles/$(coachId)).data.active == true
+        && get(/databases/$(database)/documents/coach_profiles/$(coachId)).data.bookingEnabled == true
+        && get(/databases/$(database)/documents/coach_profiles/$(coachId)).data.schemaVersion == 2
+        && get(/databases/$(database)/documents/coach_profiles/$(coachId)).data.specialtyIds.hasAny([sportId]);
+    }
+
+    function activeCoachScheduleAvailability(coachId, dayKey, slotId) {
+      return exists(/databases/$(database)/documents/coach_schedule_slots/$(coachId)/days/$(dayKey)/slots/$(slotId))
+        && get(/databases/$(database)/documents/coach_schedule_slots/$(coachId)/days/$(dayKey)/slots/$(slotId)).data.active == true
+        && get(/databases/$(database)/documents/coach_schedule_slots/$(coachId)/days/$(dayKey)/slots/$(slotId)).data.schemaVersion == 2;
+    }
+
+    function validBookingRequestFields(data) {
+      return data.keys().hasOnly([
+          'studentId', 'coachId', 'sportId', 'dayKey', 'slotId', 'status',
+          'schemaVersion', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy',
+          'sessionId'
+        ])
+        && data.keys().hasAll([
+          'studentId', 'coachId', 'sportId', 'dayKey', 'slotId', 'status',
+          'schemaVersion', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'
+        ])
+        && data.studentId is string
+        && data.coachId is string
+        && data.sportId is string
+        && data.dayKey is string
+        && data.slotId is string
+        && data.status is string
+        && data.schemaVersion == 2
+        && data.createdAt is timestamp
+        && data.createdBy is string
+        && data.updatedAt is timestamp
+        && data.updatedBy is string
+        && (!data.keys().hasAny(['sessionId']) || data.sessionId is string);
+    }
+
+    function validNewBookingRequest() {
+      return hasCanonicalStudentRole()
+        && request.resource.data.studentId == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && !request.resource.data.keys().hasAny(['sessionId'])
+        && request.resource.data.schemaVersion == 2
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && isCanonicalScheduleDayKey(request.resource.data.dayKey)
+        && isCanonicalScheduleSlotId(request.resource.data.slotId)
+        && activeV2Sport(request.resource.data.sportId)
+        && activeBookingCoachForSport(
+          request.resource.data.coachId,
+          request.resource.data.sportId,
+        )
+        && activeScheduleTemplate(request.resource.data.slotId)
+        && activeCoachScheduleAvailability(
+          request.resource.data.coachId,
+          request.resource.data.dayKey,
+          request.resource.data.slotId,
+        );
+    }
+
+    function bookingRequestIdentityUnchanged() {
+      return request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.coachId == resource.data.coachId
+        && request.resource.data.sportId == resource.data.sportId
+        && request.resource.data.dayKey == resource.data.dayKey
+        && request.resource.data.slotId == resource.data.slotId
+        && request.resource.data.schemaVersion == resource.data.schemaVersion
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy;
+    }
+
+    function validBookingRequestTransition(requestId) {
+      return validBookingRequestFields(resource.data)
+        && validBookingRequestFields(request.resource.data)
+        && bookingRequestIdentityUnchanged()
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'status', 'sessionId', 'updatedAt', 'updatedBy'
+        ])
+        && (
+          (hasCanonicalStudentRole()
+            && request.auth.uid == resource.data.studentId
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'withdrawn'
+            && request.resource.data.updatedBy == request.auth.uid)
+          || (isCoach()
+            && request.auth.uid == resource.data.coachId
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'rejected'
+            && request.resource.data.updatedBy == request.auth.uid)
+          || (isCoach()
+            && request.auth.uid == resource.data.coachId
+            && resource.data.status == 'pending'
+            && request.resource.data.status == 'approved'
+            && request.resource.data.keys().hasAll(['sessionId'])
+            && request.resource.data.sessionId == requestId
+            && request.resource.data.updatedBy == request.auth.uid
+            && validApprovedSessionAfter(
+              request.resource.data.sessionId,
+              request.resource.data
+            ))
+        );
+    }
+
+    function validSessionFields(data) {
+      return data.keys().hasOnly([
+          'bookingRequestId', 'studentId', 'coachId', 'sportId', 'dayKey',
+          'slotId', 'entitlementId', 'sourceSessionId', 'makeUpSessionId', 'status', 'schemaVersion', 'createdAt', 'createdBy',
+          'updatedAt', 'updatedBy'
+        ])
+        && data.keys().hasAll([
+          'bookingRequestId', 'studentId', 'coachId', 'sportId', 'dayKey',
+          'slotId', 'entitlementId', 'status', 'schemaVersion', 'createdAt', 'createdBy',
+          'updatedAt', 'updatedBy'
+        ])
+        && data.bookingRequestId is string
+        && data.studentId is string
+        && data.coachId is string
+        && data.sportId is string
+        && data.dayKey is string
+        && data.slotId is string
+        && data.entitlementId is string
+        && (!data.keys().hasAny(['sourceSessionId']) || data.sourceSessionId is string)
+        && (!data.keys().hasAny(['makeUpSessionId']) || data.makeUpSessionId is string)
+        && (data.status == 'scheduled'
+          || data.status == 'completed'
+          || data.status == 'student_no_show'
+          || data.status == 'coach_cancelled'
+          || data.status == 'system_cancelled')
+        && data.schemaVersion == 2
+        && data.createdAt is timestamp
+        && data.createdBy is string
+        && data.updatedAt is timestamp
+        && data.updatedBy is string;
+    }
+
+    function validReservationSlotFields(data) {
+      return data.keys().hasOnly([
+          'sessionId', 'bookingRequestId', 'ownerId', 'counterpartId',
+          'schemaVersion', 'createdAt', 'createdBy'
+        ])
+        && data.keys().hasAll([
+          'sessionId', 'bookingRequestId', 'ownerId', 'counterpartId',
+          'schemaVersion', 'createdAt', 'createdBy'
+        ])
+        && data.sessionId is string
+        && data.bookingRequestId is string
+        && data.ownerId is string
+        && data.counterpartId is string
+        && data.schemaVersion == 2
+        && data.createdAt is timestamp
+        && data.createdBy is string;
+    }
+
+    function validApprovedSessionAfter(sessionId, requestData) {
+      return existsAfter(/databases/$(database)/documents/sessions/$(sessionId))
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.bookingRequestId
+          == requestData.sessionId
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.studentId
+          == requestData.studentId
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.coachId
+          == requestData.coachId
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.sportId
+          == requestData.sportId
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.dayKey
+          == requestData.dayKey
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.slotId
+          == requestData.slotId
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.status
+          == 'scheduled';
+    }
+
+    function validEntitlementFields(data) {
+      return data.keys().hasOnly([
+          'studentId', 'packageId', 'sportId', 'packageType', 'totalSessions',
+          'remainingSessions', 'validityDays', 'status', 'schemaVersion',
+          'lastConsumedSessionId', 'createdAt', 'createdBy', 'updatedAt', 'updatedBy'
+        ])
+        && data.keys().hasAll([
+          'studentId', 'packageId', 'sportId', 'packageType', 'totalSessions',
+          'remainingSessions', 'validityDays', 'status', 'schemaVersion',
+          'createdAt', 'createdBy', 'updatedAt', 'updatedBy'
+        ])
+        && data.studentId is string
+        && data.packageId is string
+        && data.sportId is string
+        && data.packageType is string
+        && data.totalSessions is int && data.totalSessions > 0
+        && data.remainingSessions is int && data.remainingSessions >= 0
+        && data.remainingSessions <= data.totalSessions
+        && data.validityDays is int && data.validityDays > 0
+        && (data.status == 'active' || data.status == 'exhausted')
+        && data.schemaVersion == 2
+        && (!data.keys().hasAny(['lastConsumedSessionId'])
+          || data.lastConsumedSessionId is string)
+        && data.createdAt is timestamp && data.createdBy is string
+        && data.updatedAt is timestamp && data.updatedBy is string;
+    }
+
+    function validCatalogBackedEntitlement(studentId, data) {
+      return exists(/databases/$(database)/documents/package_catalog/$(data.packageId))
+        && get(/databases/$(database)/documents/package_catalog/$(data.packageId)).data.packageId == data.packageId
+        && get(/databases/$(database)/documents/package_catalog/$(data.packageId)).data.sportId == data.sportId
+        && get(/databases/$(database)/documents/package_catalog/$(data.packageId)).data.packageType == data.packageType
+        && get(/databases/$(database)/documents/package_catalog/$(data.packageId)).data.totalSessions == data.totalSessions
+        && get(/databases/$(database)/documents/package_catalog/$(data.packageId)).data.validityDays == data.validityDays
+        && get(/databases/$(database)/documents/package_catalog/$(data.packageId)).data.active == true
+        && get(/databases/$(database)/documents/package_catalog/$(data.packageId)).data.schemaVersion == 2
+        && data.studentId == studentId;
+    }
+
+    function coachOwnsRosterStudent(coachId, studentId) {
+      return exists(/databases/$(database)/documents/coaches/$(coachId)/students/$(studentId));
+    }
+
+    function coachOwnsRosterStudentAfter(coachId, studentId) {
+      return existsAfter(/databases/$(database)/documents/coaches/$(coachId)/students/$(studentId));
+    }
+
+    function validEntitlementActivation(studentId) {
+      return isCoach()
+        && request.resource.data.studentId == studentId
+        && request.resource.data.createdBy == request.auth.uid
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.updatedAt == request.time
+        && validEntitlementFields(request.resource.data)
+        && request.resource.data.status == 'active'
+        && request.resource.data.remainingSessions == request.resource.data.totalSessions
+        && !request.resource.data.keys().hasAny(['lastConsumedSessionId'])
+        && coachOwnsRosterStudent(request.auth.uid, studentId)
+        && validCatalogBackedEntitlement(studentId, request.resource.data);
+    }
+
+    function validEntitlementConsumptionAfter(sessionId, sessionData) {
+      return exists(/databases/$(database)/documents/student_entitlements/$(sessionData.studentId))
+        && getAfter(/databases/$(database)/documents/student_entitlements/$(sessionData.studentId)).data.studentId == sessionData.studentId
+        && getAfter(/databases/$(database)/documents/student_entitlements/$(sessionData.studentId)).data.sportId == sessionData.sportId
+        && getAfter(/databases/$(database)/documents/student_entitlements/$(sessionData.studentId)).data.lastConsumedSessionId == sessionId
+        && getAfter(/databases/$(database)/documents/student_entitlements/$(sessionData.studentId)).data.remainingSessions
+          == get(/databases/$(database)/documents/student_entitlements/$(sessionData.studentId)).data.remainingSessions - 1;
+    }
+
+    function validEntitlementConsumption() {
+      return isCoach()
+        && coachOwnsRosterStudentAfter(request.auth.uid, resource.data.studentId)
+        && validEntitlementFields(resource.data)
+        && validEntitlementFields(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'remainingSessions', 'status', 'lastConsumedSessionId', 'updatedAt', 'updatedBy'
+        ])
+        && resource.data.status == 'active'
+        && resource.data.remainingSessions > 0
+        && request.resource.data.remainingSessions == resource.data.remainingSessions - 1
+        && ((request.resource.data.remainingSessions > 0
+            && request.resource.data.status == 'active')
+          || (request.resource.data.remainingSessions == 0
+            && request.resource.data.status == 'exhausted'))
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.lastConsumedSessionId is string
+        && existsAfter(/databases/$(database)/documents/sessions/$(request.resource.data.lastConsumedSessionId))
+        && getAfter(/databases/$(database)/documents/sessions/$(request.resource.data.lastConsumedSessionId)).data.studentId == resource.data.studentId
+        && getAfter(/databases/$(database)/documents/sessions/$(request.resource.data.lastConsumedSessionId)).data.entitlementId == resource.data.studentId
+        // A make-up reuses its source entitlement and can never consume it.
+        && !getAfter(/databases/$(database)/documents/sessions/$(request.resource.data.lastConsumedSessionId)).data.keys().hasAny(['sourceSessionId']);
+    }
+
+    function validApprovalRequestAfter(sessionId, sessionData) {
+      return existsAfter(/databases/$(database)/documents/booking_requests/$(sessionData.bookingRequestId))
+        && getAfter(/databases/$(database)/documents/booking_requests/$(sessionData.bookingRequestId)).data.status
+          == 'approved'
+        && getAfter(/databases/$(database)/documents/booking_requests/$(sessionData.bookingRequestId)).data.sessionId
+          == sessionId
+        && getAfter(/databases/$(database)/documents/booking_requests/$(sessionData.bookingRequestId)).data.studentId
+          == sessionData.studentId
+        && getAfter(/databases/$(database)/documents/booking_requests/$(sessionData.bookingRequestId)).data.coachId
+          == sessionData.coachId
+        && getAfter(/databases/$(database)/documents/booking_requests/$(sessionData.bookingRequestId)).data.sportId
+          == sessionData.sportId
+        && getAfter(/databases/$(database)/documents/booking_requests/$(sessionData.bookingRequestId)).data.dayKey
+          == sessionData.dayKey
+        && getAfter(/databases/$(database)/documents/booking_requests/$(sessionData.bookingRequestId)).data.slotId
+          == sessionData.slotId;
+    }
+
+    function validReservationAfter(path, sessionId, requestId, ownerId, counterpartId) {
+      return existsAfter(path)
+        && getAfter(path).data.sessionId == sessionId
+        && getAfter(path).data.bookingRequestId == requestId
+        && getAfter(path).data.ownerId == ownerId
+        && getAfter(path).data.counterpartId == counterpartId
+        && getAfter(path).data.schemaVersion == 2;
+    }
+
+    function validNewSession(sessionId, data) {
+      return validSessionFields(data)
+        && ((!data.keys().hasAny(['sourceSessionId'])
+            && !data.keys().hasAny(['makeUpSessionId'])
+            && data.bookingRequestId == sessionId)
+          || (data.keys().hasAll(['sourceSessionId'])
+            && !data.keys().hasAny(['makeUpSessionId'])
+            && data.bookingRequestId is string))
+        && data.status == 'scheduled'
+        && data.createdBy == request.auth.uid
+        && data.updatedBy == request.auth.uid
+        && data.createdAt == request.time
+        && data.updatedAt == request.time
+        && isCanonicalScheduleDayKey(data.dayKey)
+        && isCanonicalScheduleSlotId(data.slotId)
+        && activeScheduleTemplate(data.slotId)
+        && activeCoachScheduleAvailability(data.coachId, data.dayKey, data.slotId)
+        && existsAfter(/databases/$(database)/documents/coaches/$(data.coachId)/students/$(data.studentId))
+        && data.entitlementId == data.studentId
+        && (( !data.keys().hasAny(['sourceSessionId'])
+            && validEntitlementConsumptionAfter(sessionId, data)
+            && validApprovalRequestAfter(sessionId, data))
+          || (data.keys().hasAll(['sourceSessionId'])
+            && validMakeupSessionAfter(sessionId, data)))
+        && validReservationAfter(
+          /databases/$(database)/documents/coach_session_slots/$(data.coachId)/days/$(data.dayKey)/slots/$(data.slotId),
+          sessionId, data.bookingRequestId, data.coachId, data.studentId
+        )
+        && validReservationAfter(
+          /databases/$(database)/documents/student_session_slots/$(data.studentId)/days/$(data.dayKey)/slots/$(data.slotId),
+          sessionId, data.bookingRequestId, data.studentId, data.coachId
+        );
+    }
+
+    function sessionIdentityUnchanged() {
+      return request.resource.data.bookingRequestId == resource.data.bookingRequestId
+        && request.resource.data.studentId == resource.data.studentId
+        && request.resource.data.coachId == resource.data.coachId
+        && request.resource.data.sportId == resource.data.sportId
+        && request.resource.data.dayKey == resource.data.dayKey
+        && request.resource.data.slotId == resource.data.slotId
+        && request.resource.data.entitlementId == resource.data.entitlementId
+        && ((!resource.data.keys().hasAny(['sourceSessionId'])
+            && !request.resource.data.keys().hasAny(['sourceSessionId']))
+          || (resource.data.keys().hasAll(['sourceSessionId'])
+            && request.resource.data.keys().hasAll(['sourceSessionId'])
+            && request.resource.data.sourceSessionId == resource.data.sourceSessionId))
+        && request.resource.data.schemaVersion == resource.data.schemaVersion
+        && request.resource.data.createdAt == resource.data.createdAt
+        && request.resource.data.createdBy == resource.data.createdBy;
+    }
+
+    function validMakeupSessionAfter(sessionId, data) {
+      return data.sourceSessionId != sessionId
+        && exists(/databases/$(database)/documents/sessions/$(data.sourceSessionId))
+        && get(/databases/$(database)/documents/sessions/$(data.sourceSessionId)).data.coachId == data.coachId
+        && get(/databases/$(database)/documents/sessions/$(data.sourceSessionId)).data.studentId == data.studentId
+        && get(/databases/$(database)/documents/sessions/$(data.sourceSessionId)).data.entitlementId == data.entitlementId
+        && (get(/databases/$(database)/documents/sessions/$(data.sourceSessionId)).data.status == 'coach_cancelled'
+          || get(/databases/$(database)/documents/sessions/$(data.sourceSessionId)).data.status == 'system_cancelled')
+        && !get(/databases/$(database)/documents/sessions/$(data.sourceSessionId)).data.keys().hasAny(['makeUpSessionId'])
+        && getAfter(/databases/$(database)/documents/sessions/$(data.sourceSessionId)).data.makeUpSessionId == sessionId
+        && existsAfter(/databases/$(database)/documents/coaches/$(data.coachId)/students/$(data.studentId));
+    }
+
+    function validSessionUpdate(sessionId) {
+      return validSessionFields(resource.data)
+        && validSessionFields(request.resource.data)
+        && sessionIdentityUnchanged()
+        && request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedBy == request.auth.uid
+        && (((isCoach() && request.auth.uid == resource.data.coachId)
+            && resource.data.status == 'scheduled'
+            && (request.resource.data.status == 'completed'
+              || request.resource.data.status == 'student_no_show'
+              || (request.resource.data.status == 'coach_cancelled'
+                && validCancelledSessionReservationsReleased(sessionId, resource.data)))
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'updatedAt', 'updatedBy'
+            ]))
+          || (isAdmin()
+            && resource.data.status == 'scheduled'
+            && request.resource.data.status == 'system_cancelled'
+            && validCancelledSessionReservationsReleased(sessionId, resource.data)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'status', 'updatedAt', 'updatedBy'
+            ]))
+          || ((isCoach() && request.auth.uid == resource.data.coachId)
+            && (resource.data.status == 'coach_cancelled'
+                || resource.data.status == 'system_cancelled')
+            && !resource.data.keys().hasAny(['makeUpSessionId'])
+            && request.resource.data.status == resource.data.status
+            && request.resource.data.makeUpSessionId is string
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+              'makeUpSessionId', 'updatedAt', 'updatedBy'
+            ])
+            && existsAfter(/databases/$(database)/documents/sessions/$(request.resource.data.makeUpSessionId))
+            && getAfter(/databases/$(database)/documents/sessions/$(request.resource.data.makeUpSessionId)).data.sourceSessionId == sessionId));
+    }
+
+    function validCancelledSessionReservationsReleased(sessionId, data) {
+      return !existsAfter(
+          /databases/$(database)/documents/coach_session_slots/$(data.coachId)/days/$(data.dayKey)/slots/$(data.slotId)
+        )
+        && !existsAfter(
+          /databases/$(database)/documents/student_session_slots/$(data.studentId)/days/$(data.dayKey)/slots/$(data.slotId)
+        );
+    }
+
+    function validNewReservationSlot(sessionId, sessionData, ownerId, counterpartId, data) {
+      return validReservationSlotFields(data)
+        && data.sessionId == sessionId
+        && data.bookingRequestId == sessionData.bookingRequestId
+        && data.ownerId == ownerId
+        && data.counterpartId == counterpartId
+        && data.createdBy == request.auth.uid
+        && data.createdAt == request.time
+        && existsAfter(/databases/$(database)/documents/sessions/$(sessionId))
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.coachId
+          == sessionData.coachId
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.studentId
+          == sessionData.studentId
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.dayKey
+          == sessionData.dayKey
+        && getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.slotId
+          == sessionData.slotId;
+    }
+
+    function validReservationRelease(sessionId, coachId, ownerId, counterpartId) {
+      return ((isCoach() && request.auth.uid == coachId) || isAdmin())
+        && resource.data.sessionId == sessionId
+        && resource.data.ownerId == ownerId
+        && resource.data.counterpartId == counterpartId
+        && existsAfter(/databases/$(database)/documents/sessions/$(sessionId))
+        && (getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.status == 'coach_cancelled'
+          || getAfter(/databases/$(database)/documents/sessions/$(sessionId)).data.status == 'system_cancelled');
     }
 
     function isOwner(userId) {
@@ -525,15 +1002,109 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Immutable trusted V2 hourly scheduling catalogue. Flutter clients never
+    // provision or mutate these documents; the versioned Admin SDK tool owns
+    // them outside normal application runtime.
+    match /schedule_slot_templates/{slotId} {
+      allow read, write: if false;
+    }
+
+    // The path is the immutable Coach/date/slot coordinate. A document only
+    // stores the availability gate, so clients cannot transfer ownership or
+    // rewrite coordinates through data fields. Later approval work will read
+    // this exact active path; it must not affect an existing Session.
+    match /coach_schedule_slots/{coachId}/days/{dayKey}/slots/{slotId} {
+      // Coach day lists are private. Student discovery uses the fixed 13-slot
+      // bounded path set instead of a list query, so Rules can reject every
+      // inactive document without exposing it through an unscoped collection.
+      allow list: if isCoach() && request.auth.uid == coachId;
+      allow get: if isCoach() && request.auth.uid == coachId;
+      allow get: if hasCanonicalStudentRole()
+        && isCanonicalScheduleDayKey(dayKey)
+        && isCanonicalScheduleSlotId(slotId)
+        && resource != null
+        && resource.data.active == true;
+      allow create: if isCoach()
+        && request.auth.uid == coachId
+        && isCanonicalScheduleDayKey(dayKey)
+        && isCanonicalScheduleSlotId(slotId)
+        && activeScheduleTemplate(slotId)
+        && validCoachScheduleSlotFields(request.resource.data);
+      allow update: if isCoach()
+        && request.auth.uid == coachId
+        && isCanonicalScheduleDayKey(dayKey)
+        && isCanonicalScheduleSlotId(slotId)
+        && validCoachScheduleSlotFields(resource.data)
+        && validCoachScheduleSlotFields(request.resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys()
+          .hasOnly(['active'])
+        && (request.resource.data.active == false
+          || activeScheduleTemplate(slotId));
+      allow delete: if false;
+    }
+
     // V2 source records below deliberately remain closed until their owning
     // transaction packages are released. Admin SDK trusted tooling bypasses
     // Rules; neither Flutter client receives a speculative write path here.
     match /booking_requests/{requestId} {
-      allow read, write: if false;
+      allow read: if (hasCanonicalStudentRole()
+          && request.auth.uid == resource.data.studentId)
+        || (isCoach() && request.auth.uid == resource.data.coachId);
+      allow create: if validBookingRequestFields(request.resource.data)
+        && validNewBookingRequest();
+      allow update: if validBookingRequestTransition(requestId);
+      allow delete: if false;
     }
 
     match /sessions/{sessionId} {
-      allow read, write: if false;
+      allow read: if signedIn()
+        && (resource.data.studentId == request.auth.uid
+          || (isCoach() && resource.data.coachId == request.auth.uid));
+      allow create: if isCoach()
+        && request.resource.data.coachId == request.auth.uid
+        && validNewSession(sessionId, request.resource.data);
+      allow update: if validSessionUpdate(sessionId);
+      allow delete: if false;
+    }
+
+    match /coach_session_slots/{coachId}/days/{dayKey}/slots/{slotId} {
+      allow read: if isCoach() && request.auth.uid == coachId;
+      allow create: if isCoach()
+        && request.auth.uid == coachId
+        && isCanonicalScheduleDayKey(dayKey)
+        && isCanonicalScheduleSlotId(slotId)
+        && validNewReservationSlot(
+          request.resource.data.sessionId,
+          getAfter(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data,
+          coachId,
+          request.resource.data.counterpartId,
+          request.resource.data
+        );
+      allow update: if false;
+      allow delete: if validReservationRelease(
+        resource.data.sessionId, coachId, coachId, resource.data.counterpartId
+      );
+    }
+
+    match /student_session_slots/{studentId}/days/{dayKey}/slots/{slotId} {
+      allow get: if signedIn() && request.auth.uid == studentId;
+      allow get: if isCoach()
+        && resource.data.counterpartId == request.auth.uid;
+      allow create: if isCoach()
+        && isCanonicalScheduleDayKey(dayKey)
+        && isCanonicalScheduleSlotId(slotId)
+        && request.resource.data.counterpartId == request.auth.uid
+        && validNewReservationSlot(
+          request.resource.data.sessionId,
+          getAfter(/databases/$(database)/documents/sessions/$(request.resource.data.sessionId)).data,
+          studentId,
+          request.resource.data.counterpartId,
+          request.resource.data
+        );
+      allow update: if false;
+      allow delete: if validReservationRelease(
+        resource.data.sessionId, resource.data.counterpartId, studentId, resource.data.counterpartId
+      );
     }
 
     match /coach_busy_blocks/{blockId} {
@@ -545,11 +1116,34 @@ service cloud.firestore {
     }
 
     match /student_entitlements/{entitlementId} {
-      allow read, write: if false;
+      allow get: if signedIn()
+        && (request.auth.uid == entitlementId
+          || (isCoach() && coachOwnsRosterStudent(request.auth.uid, entitlementId)));
+      allow create: if entitlementId == request.resource.data.studentId
+        && validEntitlementActivation(entitlementId);
+      allow update: if entitlementId == resource.data.studentId
+        && validEntitlementConsumption();
+      allow delete: if false;
     }
 
     match /coaches/{coachId}/students/{studentId} {
-      allow read, write: if false;
+      allow get, list: if isCoach() && request.auth.uid == coachId;
+      allow create: if isCoach()
+        && request.auth.uid == coachId
+        && request.resource.data.keys().hasOnly([
+          'coachId', 'studentId', 'bookingRequestId', 'createdAt',
+          'createdBy', 'schemaVersion'
+        ])
+        && request.resource.data.coachId == coachId
+        && request.resource.data.studentId == studentId
+        && request.resource.data.createdBy == coachId
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.schemaVersion == 2
+        && exists(/databases/$(database)/documents/booking_requests/$(request.resource.data.bookingRequestId))
+        && get(/databases/$(database)/documents/booking_requests/$(request.resource.data.bookingRequestId)).data.status == 'pending'
+        && get(/databases/$(database)/documents/booking_requests/$(request.resource.data.bookingRequestId)).data.coachId == coachId
+        && get(/databases/$(database)/documents/booking_requests/$(request.resource.data.bookingRequestId)).data.studentId == studentId;
+      allow update, delete: if false;
     }
 
     match /session_change_requests/{requestId} {
@@ -569,7 +1163,8 @@ service cloud.firestore {
     }
 
     match /package_catalog/{packageId} {
-      allow read, write: if false;
+      allow get: if isCoach() || isAdmin();
+      allow create, update, delete: if false;
     }
 
     match /packages/{packageId} {

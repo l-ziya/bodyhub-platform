@@ -21,6 +21,7 @@ import '../../lessons/screens/student_lessons_screen.dart';
 import '../../nutrition/presentation/nutrition_screen.dart';
 import '../../exercise/presentation/exercise_program_screen.dart';
 import '../../sports/presentation/sport_selection_screen.dart';
+import '../../scheduling/presentation/v2_booking_request_screen.dart';
 import '../../students/providers/current_student_provider.dart';
 import 'student_package_screen.dart';
 
@@ -249,6 +250,16 @@ class _QuickActionsDrawer extends StatelessWidget {
               MaterialPageRoute(
                 builder: (_) => BookingScreen(dashboard: dashboard),
               ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          QuickActionCard(
+            icon: Icons.schedule_send_rounded,
+            title: 'Yeni Rezervasyon Talebi (V2)',
+            subtitle: 'Koç ve saat seçerek onay bekleyen talep gönder',
+            iconColor: AppColors.info,
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const V2BookingRequestScreen()),
             ),
           ),
           const SizedBox(height: 12),
