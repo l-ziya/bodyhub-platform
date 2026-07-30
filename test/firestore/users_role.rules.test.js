@@ -223,7 +223,7 @@ testAfterFix('roleless user cannot perform a coach-only lesson write', async () 
   );
 });
 
-testAfterFix('claimed coach retains existing coach permissions and self profile updates', async () => {
+testAfterFix('claimed coach retains existing coaching permissions and only private self metadata updates', async () => {
   await seed('users/coach-a', {
     uid: 'coach-a',
     fullName: 'Coach A',
@@ -239,11 +239,9 @@ testAfterFix('claimed coach retains existing coach permissions and self profile 
   }));
   await assertSucceeds(
     updateDoc(userRef(coachDb, 'coach-a'), {
-      name: 'Coach A Updated',
+      fullName: 'Coach A Updated',
       phone: '5552222222',
-      specialty: 'Fitness',
-      bio: 'Profile update',
-      coachSettings: { lessonNotifications: true },
+      locale: 'tr-TR',
       updatedAt: serverTimestamp(),
     }),
   );
@@ -289,6 +287,21 @@ testAfterFix('canonical role maps are authoritative while the scalar claim remai
     }));
     await assertFails(updateDoc(doc(claimlessContext('metadata-coach'), 'student_profiles', 'student-a'), {
       status: 'active', coachId: 'metadata-coach',
+    }));
+  });
+});
+
+testAfterFix('a refreshed canonical-claim token is required before Coach access succeeds', async (t) => {
+  await t.test('claimless token is denied', async () => {
+    await seed('student_profiles/student-a', { status: 'pending' });
+    await assertFails(updateDoc(doc(claimlessContext('coach-a'), 'student_profiles', 'student-a'), {
+      status: 'active', coachId: 'coach-a',
+    }));
+  });
+  await t.test('a new token carrying canonical coach claim succeeds', async () => {
+    await seed('student_profiles/student-a', { status: 'pending' });
+    await assertSucceeds(updateDoc(doc(coachContext('coach-a'), 'student_profiles', 'student-a'), {
+      status: 'active', coachId: 'coach-a',
     }));
   });
 });
@@ -349,11 +362,11 @@ testAfterFix('coach can only create lessons with their own coachId', async () =>
   }));
 });
 
-testAfterFix('coach can update only a students sport fields', async () => {
+testAfterFix('coach cannot mutate a related Students private users metadata', async () => {
   await seed('users/coach-a', { uid: 'coach-a', role: 'coach' });
   await seed('users/student-a', studentUser());
   await seed('student_profiles/student-a', { status: 'active', coachId: 'coach-a' });
-  await assertSucceeds(
+  await assertFails(
     updateDoc(userRef(coachContext('coach-a'), 'student-a'), {
       sportId: 'fitness',
       sportName: 'Fitness',
@@ -378,6 +391,25 @@ testAfterFix('coach cannot change sensitive or unrelated student users fields', 
     updateDoc(userRef(coachDb, 'student-a'), { createdAt: serverTimestamp() }),
   );
   await assertFails(updateDoc(userRef(coachDb, 'student-a'), { packageId: 'monthly' }));
+});
+
+testAfterFix('users metadata is private to self or a directly assigned Coach', async (t) => {
+  await seed('users/student-a', studentUser());
+  await seed('users/student-b', studentUser({ uid: 'student-b' }));
+  await seed('student_profiles/student-a', { status: 'active', coachId: 'coach-a' });
+  await seed('student_profiles/student-b', { status: 'active', coachId: 'coach-b' });
+  const coachA = coachContext('coach-a');
+  await t.test('assigned direct document read succeeds', async () => {
+    await assertSucceeds(getDoc(userRef(coachA, 'student-a')));
+  });
+  await t.test('foreign direct document read and global query fail', async () => {
+    await assertFails(getDoc(userRef(coachA, 'student-b')));
+    await assertFails(getDocs(collection(coachA, 'users')));
+  });
+  await t.test('users role metadata does not refresh authorization', async () => {
+    await seed('users/metadata-coach', { uid: 'metadata-coach', role: 'coach' });
+    await assertFails(getDoc(userRef(claimlessContext('metadata-coach'), 'student-a')));
+  });
 });
 
 testAfterFix('coach cannot add, change, or remove another users role', async (t) => {

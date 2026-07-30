@@ -27,12 +27,20 @@ service cloud.firestore {
       return hasCanonicalRole(role) || hasLegacyRole(role);
     }
 
-    function canManageCoaching() {
-      return hasRole('coach') || hasRole('admin');
+    function isStudent() {
+      return hasRole('student');
     }
 
     function isCoach() {
-      return canManageCoaching();
+      return hasRole('coach');
+    }
+
+    function isAdmin() {
+      return hasRole('admin');
+    }
+
+    function canManageCoaching() {
+      return isCoach() || isAdmin();
     }
 
     function canEditOwnCoachProfile(coachId) {
@@ -94,7 +102,7 @@ service cloud.firestore {
     }
 
     function coachOwnsRecord(data) {
-      return isCoach()
+      return canManageCoaching()
         && data.keys().hasAll(['coachId'])
         && data.coachId == request.auth.uid;
     }
@@ -106,7 +114,7 @@ service cloud.firestore {
     }
 
     function isPendingUnassignedStudent(data) {
-      return isCoach()
+      return canManageCoaching()
         && data.keys().hasAll(['status'])
         && data.status == 'pending'
         && !data.keys().hasAny(['coachId']);
@@ -121,7 +129,7 @@ service cloud.firestore {
     }
 
     function coachOwnsStudent(studentId) {
-      return isCoach()
+      return canManageCoaching()
         && isStringId(studentId)
         && exists(/databases/$(database)/documents/student_profiles/$(studentId))
         && studentProfile(studentId).data.keys().hasAll(['coachId'])
@@ -149,7 +157,7 @@ service cloud.firestore {
     }
 
     function coachOwnsLessonRequest(data) {
-      return isCoach() && (
+      return canManageCoaching() && (
         (data.keys().hasAll(['lessonId']) && coachOwnsLessonId(data.lessonId)) ||
         (data.keys().hasAll(['bookingId']) && coachOwnsBookingId(data.bookingId))
       );
@@ -204,11 +212,15 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly([
           'uid',
           'fullName',
+          'displayName',
           'phone',
           'email',
           'gender',
+          'locale',
+          'photoUrl',
           'status',
-          'createdAt'
+          'createdAt',
+          'updatedAt'
         ])
         && request.resource.data.keys().hasAll([
           'uid',
@@ -217,31 +229,20 @@ service cloud.firestore {
         ])
         && request.resource.data.uid == userId
         && request.resource.data.status == 'pending';
-      allow read: if isOwner(userId) || isCoach() || hasStudentIdentity(resource.data);
-      allow update: if (
-        isOwner(userId)
-        && !isCoach()
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['fullName', 'phone', 'gender', 'updatedAt'])
-      ) || (
-        isCoach()
-        && isOwner(userId)
+      // Private UI metadata: a user reads self, or an assigned Coach reads a
+      // directly related Student. users.role never grants either access.
+      allow read: if isOwner(userId) || coachOwnsStudent(userId);
+      allow update: if isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
           .hasOnly([
-            'name',
+            'fullName',
+            'displayName',
             'phone',
-            'specialty',
-            'bio',
-            'coachSettings',
+            'gender',
+            'locale',
+            'photoUrl',
             'updatedAt'
-          ])
-      ) || (
-        isCoach()
-        && !isOwner(userId)
-        && coachOwnsStudent(userId)
-        && request.resource.data.diff(resource.data).affectedKeys()
-          .hasOnly(['sportId', 'sportName', 'updatedAt'])
-      );
+          ]);
       allow delete: if false;
     }
 
@@ -259,7 +260,7 @@ service cloud.firestore {
         && !request.resource.data.diff(resource.data).affectedKeys()
           .hasAny(['coachId'])
       ) || (
-        isCoach()
+        canManageCoaching()
         && !resource.data.keys().hasAny(['coachId'])
         && request.resource.data.coachId == request.auth.uid
         && resource.data.status == 'pending'
@@ -329,7 +330,7 @@ service cloud.firestore {
         coachOwnsRecord(resource.data)
         && coachOwnsBooking(resource.data)
       );
-      allow create: if isCoach()
+      allow create: if canManageCoaching()
         && request.resource.data.coachId == request.auth.uid
         && request.resource.data.bookingId is string
         && existsAfter(/databases/$(database)/documents/bookings/$(request.resource.data.bookingId))
@@ -383,7 +384,7 @@ service cloud.firestore {
 
     match /lessons/{lessonId} {
       allow read: if coachOwnsLesson(resource.data) || isOwner(resource.data.studentId);
-      allow create: if isCoach()
+      allow create: if canManageCoaching()
         && request.resource.data.coachId == request.auth.uid
         && coachOwnsStudent(request.resource.data.studentId);
       allow update: if coachOwnsLesson(resource.data)
@@ -476,7 +477,7 @@ service cloud.firestore {
       allow read: if signedIn()
         && resource.data.studentId == request.auth.uid;
       allow read: if coachOwnsStudentRecord(resource.data);
-      allow create: if isCoach()
+      allow create: if canManageCoaching()
         && request.resource.data.coachId == request.auth.uid
         && coachOwnsStudent(request.resource.data.studentId);
       allow update: if coachOwnsStudentRecord(resource.data)
@@ -489,7 +490,7 @@ service cloud.firestore {
       allow read: if signedIn()
         && resource.data.studentId == request.auth.uid;
       allow read: if coachOwnsStudentRecord(resource.data);
-      allow create: if isCoach()
+      allow create: if canManageCoaching()
         && request.resource.data.coachId == request.auth.uid
         && coachOwnsStudent(request.resource.data.studentId);
       allow update: if coachOwnsStudentRecord(resource.data)
@@ -502,7 +503,7 @@ service cloud.firestore {
       allow read: if signedIn()
         && resource.data.studentId == request.auth.uid;
       allow read: if coachOwnsStudentRecord(resource.data);
-      allow create: if isCoach()
+      allow create: if canManageCoaching()
         && request.resource.data.coachId == request.auth.uid
         && coachOwnsStudent(request.resource.data.studentId);
       allow update: if coachOwnsStudentRecord(resource.data)
@@ -526,7 +527,7 @@ service cloud.firestore {
 
     match /packages/{packageId} {
       allow read: if signedIn();
-      allow write: if isCoach();
+      allow write: if canManageCoaching();
     }
   }
 }

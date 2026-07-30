@@ -2,7 +2,9 @@
 
 `tool/manage_custom_claim_roles.js` is the only repository-provided operator
 tool for assigning BODY HUB's trusted Firebase Auth roles. Firestore Rules use
-`request.auth.token.role`; `users/{uid}.role` is UI metadata only.
+the canonical `request.auth.token.roles` map; `users/{uid}.role` is UI
+metadata only. A scalar `request.auth.token.role` remains a temporary legacy
+compatibility fallback.
 
 ## Prerequisites
 
@@ -28,19 +30,21 @@ node tool/manage_custom_claim_roles.js show-role --uid <uid> --project-id <proje
 node tool/manage_custom_claim_roles.js set-role --email coach@example.com --role coach --project-id <project> --service-account C:\secure\service-account.json
 node tool/manage_custom_claim_roles.js set-role --email coach@example.com --role coach --apply --operator <operator-id> --project-id <project> --service-account C:\secure\service-account.json
 
-# Remove a role, or list all current privileged users.
-node tool/manage_custom_claim_roles.js remove-role --uid <uid> --apply --operator <operator-id> --project-id <project> --service-account C:\secure\service-account.json
+# Remove one role, or list all current privileged users.
+node tool/manage_custom_claim_roles.js remove-role --uid <uid> --role coach --apply --operator <operator-id> --project-id <project> --service-account C:\secure\service-account.json
 node tool/manage_custom_claim_roles.js list-privileged-users --project-id <project> --service-account C:\secure\service-account.json
 ```
 
-Only `coach` and `admin` are accepted. Existing unrelated custom claims are
-preserved. The final Admin cannot be removed or demoted by this tool.
+Only `student`, `coach`, and `admin` are accepted. Repeating `set-role` adds
+the role to the canonical map instead of replacing other managed roles.
+Existing unrelated custom claims are preserved. The final Admin cannot be
+removed or demoted by this tool.
 
 ## Audit and partial failures
 
 Each role-change attempt creates JSONL audit records in `claim-role-reports/`.
 Entries include the run ID, project ID, environment, operator, UID, email,
-previous role, proposed role, timestamp, and result.
+previous/proposed role sets, timestamp, and result.
 
 The Auth claim is written first. The tool then synchronizes
 `users/{uid}.role`. If that metadata document is missing or its update fails,
@@ -66,5 +70,5 @@ npx firebase emulators:exec --config test/admin/firebase.claim-role-tests.json -
 Custom claims are embedded in Firebase ID tokens. A role change may not affect
 an already-issued token immediately. The user must sign out and sign in again,
 or the client may call `currentUser.getIdToken(true)` after a trusted operator
-confirms the change. Flutter application behavior is intentionally unchanged
-by this operational package.
+confirms the change. The Coach Auth gate performs a one-time forced refresh
+after sign-in; Android and Web/PWA use the same Firebase Auth API.

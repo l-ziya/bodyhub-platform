@@ -53,3 +53,7 @@ app.*.map.json
 *.keystore
 *.p12
 *.pem
+
+# Local Admin SDK audit output
+/claim-role-reports/
+/provisioning-reports/

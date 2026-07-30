@@ -53,11 +53,17 @@ function manager() {
   });
 }
 
-async function user(uid, role = null, metadata = true) {
+async function user(uid, roles = [], metadata = true) {
+  const normalizedRoles = roles || [];
   const email = `${uid}@example.test`;
   await auth.createUser({ uid, email });
-  if (role) await auth.setCustomUserClaims(uid, { role });
-  if (metadata) await db.collection('users').doc(uid).set({ uid, ...(role ? { role } : {}) });
+  if (normalizedRoles.length > 0) await auth.setCustomUserClaims(uid, {
+    roles: Object.fromEntries(normalizedRoles.map((role) => [role, true])),
+  });
+  if (metadata) await db.collection('users').doc(uid).set({
+    uid,
+    ...(normalizedRoles.length > 0 ? { role: normalizedRoles.includes('admin') ? 'admin' : normalizedRoles[0] } : {}),
+  });
   return { uid, email };
 }
 
@@ -81,7 +87,7 @@ test('set-role preserves unrelated claims and synchronizes metadata', async () =
   });
   const updated = await auth.getUser('coach-a');
   assert.equal(result.result, 'applied');
-  assert.deepEqual(updated.customClaims, { tenant: 'north', role: 'coach' });
+  assert.deepEqual(updated.customClaims, { tenant: 'north', roles: { coach: true } });
   assert.equal((await db.doc('users/coach-a').get()).get('role'), 'coach');
   const entries = auditEntries(instance);
   assert.equal(entries.at(-1).result, 'applied');
@@ -90,8 +96,8 @@ test('set-role preserves unrelated claims and synchronizes metadata', async () =
 });
 
 test('remove-role preserves unrelated claims and removes metadata role', async () => {
-  await user('coach-a', 'coach');
-  await auth.setCustomUserClaims('coach-a', { role: 'coach', tenant: 'north' });
+  await user('coach-a', ['coach']);
+  await auth.setCustomUserClaims('coach-a', { roles: { coach: true }, tenant: 'north' });
   const instance = manager();
   const result = await instance.changeRole({ command: 'remove-role', uid: 'coach-a', apply: true });
   assert.equal(result.result, 'applied');
@@ -114,7 +120,7 @@ test('dry-run is the default safety behavior and does not mutate claims or metad
 test('invalid roles are rejected before any operation is attempted', () => {
   assert.throws(
     () => parseArgs(['set-role', '--uid', 'coach-a', '--role', 'owner', '--project-id', projectId]),
-    /coach or admin/,
+    /student, coach, or admin/,
   );
 });
 
@@ -137,17 +143,17 @@ test('metadata absence is reported as partial failure after a successful claim w
   });
   assert.equal(result.result, 'partial_failure');
   assert.equal(result.metadataResult, 'metadata_missing');
-  assert.equal((await auth.getUser('coach-a')).customClaims.role, 'coach');
+  assert.deepEqual((await auth.getUser('coach-a')).customClaims.roles, { coach: true });
   assert.equal((await db.doc('users/coach-a').get()).exists, false);
   assert.equal(auditEntries(instance).at(-1).result, 'partial_failure');
 });
 
 test('the final admin cannot be removed or demoted', async () => {
-  await user('admin-a', 'admin');
+  await user('admin-a', ['admin']);
   const instance = manager();
   const result = await instance.changeRole({ command: 'remove-role', uid: 'admin-a', apply: true });
   assert.equal(result.result, 'blocked_last_admin');
-  assert.equal((await auth.getUser('admin-a')).customClaims.role, 'admin');
+  assert.deepEqual((await auth.getUser('admin-a')).customClaims.roles, { admin: true });
   assert.equal((await db.doc('users/admin-a').get()).get('role'), 'admin');
   assert.equal(auditEntries(instance).at(-1).result, 'blocked_last_admin');
 });
@@ -161,13 +167,28 @@ test('set-role is idempotent after claims and metadata are already synchronized'
   assert.equal(second.result, 'noop');
 });
 
+test('set-role adds a second canonical role without replacing the first', async () => {
+  await user('coach-admin', ['coach']);
+  const instance = manager();
+  const result = await instance.changeRole({
+    command: 'set-role', uid: 'coach-admin', role: 'admin', apply: true,
+  });
+  assert.equal(result.result, 'applied');
+  assert.deepEqual((await auth.getUser('coach-admin')).customClaims.roles, {
+    admin: true,
+    coach: true,
+  });
+  assert.equal((await db.doc('users/coach-admin').get()).get('role'), 'admin');
+});
+
 test('show-role and list-privileged-users read claims without mutating them', async () => {
-  const coach = await user('coach-a', 'coach');
+  const coach = await user('coach-a', ['coach']);
   await user('student-a');
   const instance = manager();
   const shown = await instance.showRole({ email: coach.email });
   const privileged = await instance.listPrivilegedUsers();
   assert.equal(shown.currentRole, 'coach');
+  assert.deepEqual(shown.currentRoles, ['coach']);
   assert.equal(shown.metadataRole, 'coach');
   assert.deepEqual(privileged.map((entry) => entry.uid), ['coach-a']);
 });

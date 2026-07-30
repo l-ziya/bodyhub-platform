@@ -12,7 +12,7 @@ const admin = require('firebase-admin');
 const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 
-const ALLOWED_ROLES = new Set(['coach', 'admin']);
+const ALLOWED_ROLES = new Set(['student', 'coach', 'admin']);
 const WRITE_OPERATIONS = new Set(['set-role', 'remove-role']);
 const PRODUCTION_PROJECT_ID = 'body-hub-10745';
 
@@ -59,9 +59,14 @@ function parseArgs(argv) {
     throw new Error(`${options.command} requires --uid or --email.`);
   }
   if (options.command === 'set-role' && !ALLOWED_ROLES.has(options.role)) {
-    throw new Error('--role must be coach or admin.');
+    throw new Error('--role must be student, coach, or admin.');
   }
-  if (options.command !== 'set-role' && options.role) throw new Error('--role is only valid for set-role.');
+  if (options.command === 'remove-role' && options.role && !ALLOWED_ROLES.has(options.role)) {
+    throw new Error('--role must be student, coach, or admin.');
+  }
+  if (!['set-role', 'remove-role'].includes(options.command) && options.role) {
+    throw new Error('--role is only valid for set-role or remove-role.');
+  }
   if (!options.projectId) throw new Error('--project-id is required.');
   if (WRITE_OPERATIONS.has(options.command) && options.apply && !options.operator) {
     throw new Error('--operator is required for --apply writes.');
@@ -72,8 +77,8 @@ function parseArgs(argv) {
 function help() {
   return `Usage: node tool/manage_custom_claim_roles.js <command> [options]\n\n` +
     `Commands:\n` +
-    `  set-role --uid <uid>|--email <email> --role coach|admin [--apply]\n` +
-    `  remove-role --uid <uid>|--email <email> [--apply]\n` +
+    `  set-role --uid <uid>|--email <email> --role student|coach|admin [--apply]\n` +
+    `  remove-role --uid <uid>|--email <email> [--role student|coach|admin] [--apply]\n` +
     `  show-role --uid <uid>|--email <email>\n` +
     `  list-privileged-users\n\n` +
     `Safety:\n` +
@@ -136,14 +141,23 @@ class JsonlAuditWriter {
   }
 }
 
-function managedRole(userRecord) {
-  const role = userRecord.customClaims?.role;
-  return ALLOWED_ROLES.has(role) ? role : null;
+function managedRoles(userRecord) {
+  const canonical = userRecord.customClaims?.roles;
+  const roles = canonical && typeof canonical === 'object'
+    ? Object.entries(canonical)
+      .filter(([role, enabled]) => ALLOWED_ROLES.has(role) && enabled === true)
+      .map(([role]) => role)
+    : [];
+  if (roles.length > 0) return roles.sort();
+  const legacy = userRecord.customClaims?.role;
+  return ALLOWED_ROLES.has(legacy) ? [legacy] : [];
 }
 
-function claimRole(userRecord) {
-  const role = userRecord.customClaims?.role;
-  return typeof role === 'string' && role.trim().length > 0 ? role : null;
+function primaryRole(roles) {
+  if (roles.includes('admin')) return 'admin';
+  if (roles.includes('coach')) return 'coach';
+  if (roles.includes('student')) return 'student';
+  return null;
 }
 
 class CustomClaimRoleManager {
@@ -166,7 +180,8 @@ class CustomClaimRoleManager {
     const metadata = await this.db.collection('users').doc(user.uid).get();
     return this._report(user, {
       command: 'show-role',
-      currentRole: claimRole(user),
+      currentRole: primaryRole(managedRoles(user)),
+      currentRoles: managedRoles(user),
       metadataRole: metadata.exists ? metadata.get('role') ?? null : null,
       result: 'read_only',
     });
@@ -178,8 +193,12 @@ class CustomClaimRoleManager {
     do {
       const page = await this.auth.listUsers(1000, pageToken);
       for (const user of page.users) {
-        const role = managedRole(user);
-        if (role) users.push(this._report(user, { command: 'list-privileged-users', currentRole: role, result: 'read_only' }));
+        const roles = managedRoles(user);
+        if (roles.some((role) => role === 'coach' || role === 'admin')) {
+          users.push(this._report(user, {
+            command: 'list-privileged-users', currentRole: primaryRole(roles), currentRoles: roles, result: 'read_only',
+          }));
+        }
       }
       pageToken = page.pageToken;
     } while (pageToken);
@@ -188,28 +207,43 @@ class CustomClaimRoleManager {
 
   async changeRole({ command, uid, email, role, apply }) {
     const user = await this.resolveUser({ uid, email });
-    const currentRole = claimRole(user);
-    const nextRole = command === 'set-role' ? role : null;
+    const currentRoles = managedRoles(user);
+    const nextRoles = new Set(currentRoles);
+    if (command === 'set-role') nextRoles.add(role);
+    else if (role) nextRoles.delete(role);
+    else nextRoles.clear();
+    const normalizedNextRoles = [...nextRoles].sort();
+    const currentRole = primaryRole(currentRoles);
+    const nextRole = primaryRole(normalizedNextRoles);
     const proposal = this._report(user, {
       command,
       currentRole,
+      currentRoles,
       proposedRole: nextRole,
+      proposedRoles: normalizedNextRoles,
       result: apply ? 'proposed_apply' : 'dry_run',
     });
     this.audit.write(proposal);
     if (!apply) return proposal;
 
-    if (currentRole === 'admin' && nextRole !== 'admin' && await this._isLastAdmin(user.uid)) {
+    if (currentRoles.includes('admin') && !normalizedNextRoles.includes('admin') && await this._isLastAdmin(user.uid)) {
       const blocked = { ...proposal, result: 'blocked_last_admin', reason: 'Refusing to remove or demote the final admin.' };
       this.audit.write(blocked);
       return blocked;
     }
 
     const claims = { ...(user.customClaims || {}) };
-    if (nextRole) claims.role = nextRole;
-    else delete claims.role;
+    if (normalizedNextRoles.length > 0) {
+      claims.roles = Object.fromEntries(normalizedNextRoles.map((managedRole) => [managedRole, true]));
+    } else {
+      delete claims.roles;
+    }
+    // Managed writes migrate the legacy scalar to the canonical map while
+    // preserving all unrelated custom claims.
+    delete claims.role;
     const metadata = await this.db.collection('users').doc(user.uid).get();
-    const claimsAlreadyMatch = currentRole === nextRole;
+    const claimsAlreadyMatch = JSON.stringify(currentRoles) === JSON.stringify(normalizedNextRoles)
+      && !Object.prototype.hasOwnProperty.call(user.customClaims || {}, 'role');
     try {
       if (!claimsAlreadyMatch) await this.auth.setCustomUserClaims(user.uid, claims);
       const metadataResult = await this._syncMetadata(user.uid, nextRole, metadata);
@@ -245,7 +279,7 @@ class CustomClaimRoleManager {
     do {
       const page = await this.auth.listUsers(1000, pageToken);
       for (const user of page.users) {
-        if (managedRole(user) === 'admin') admins += 1;
+        if (managedRoles(user).includes('admin')) admins += 1;
       }
       pageToken = page.pageToken;
     } while (pageToken);
@@ -301,6 +335,7 @@ if (require.main === module) {
 
 module.exports = {
   ALLOWED_ROLES,
+  managedRoles,
   CustomClaimRoleManager,
   JsonlAuditWriter,
   createAdminContext,
