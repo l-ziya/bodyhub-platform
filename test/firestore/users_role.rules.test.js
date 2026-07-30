@@ -815,3 +815,95 @@ testAfterFix('student-created ownership fields must match the active profile and
     await assertFails(updateDoc(doc(studentA, 'lesson_change_requests', 'owned-change'), { coachId: 'coach-b' }));
   });
 });
+
+testAfterFix('V2 sports and public coach discovery profiles retain trusted ownership boundaries', async (t) => {
+  const coachProfile = (overrides = {}) => ({
+    displayName: 'Coach A', active: true, bookingEnabled: true,
+    specialtyIds: ['tennis'], bio: 'Public bio', photoUrl: '',
+    createdAt: when(), createdBy: 'provisioner-a',
+    updatedAt: when(), updatedBy: 'provisioner-a', schemaVersion: 2,
+    ...overrides,
+  });
+  const seedSports = () => seed('sports/tennis', {
+    name: 'Tennis', active: true, sortOrder: 10,
+    createdAt: when(), createdBy: 'provisioner-a', updatedAt: when(),
+    updatedBy: 'provisioner-a', schemaVersion: 2,
+  });
+  const seedDiscoveryProfiles = async () => {
+    await seed('coach_profiles/coach-a', coachProfile());
+    await seed('coach_profiles/coach-b', coachProfile({
+      displayName: 'Coach B', specialtyIds: ['fitness'],
+    }));
+    await seed('coach_profiles/coach-inactive', coachProfile({
+      displayName: 'Inactive Coach', active: false,
+    }));
+    await seed('coach_profiles/coach-hidden', coachProfile({
+      displayName: 'Hidden Coach', bookingEnabled: false,
+    }));
+  };
+
+  const coachA = coachContext('coach-a');
+  const coachB = coachContext('coach-b');
+  const studentA = studentClaimContext('student-a');
+  const discoveryQuery = () => query(
+    collection(studentA, 'coach_profiles'),
+    where('specialtyIds', 'array-contains', 'tennis'),
+    where('active', '==', true),
+    where('bookingEnabled', '==', true),
+  );
+
+  await t.test('authenticated Student can read active sports but no client can write them', async () => {
+    await seedSports();
+    await assertSucceeds(getDocs(query(
+      collection(studentA, 'sports'), where('active', '==', true),
+    )));
+    await assertFails(setDoc(doc(studentA, 'sports', 'fitness'), { name: 'Fitness' }));
+    await assertFails(updateDoc(doc(coachA, 'sports', 'tennis'), { name: 'Changed' }));
+  });
+
+  await t.test('Coach can edit only own allowed public profile fields', async () => {
+    await seedDiscoveryProfiles();
+    await assertSucceeds(updateDoc(doc(coachA, 'coach_profiles', 'coach-a'), {
+      displayName: 'Coach A Updated', bio: 'Updated bio', photoUrl: 'https://example.test/a.png',
+      specialtyIds: ['tennis', 'fitness'], updatedAt: when(), updatedBy: 'coach-a',
+    }));
+    await assertFails(updateDoc(doc(coachA, 'coach_profiles', 'coach-a'), {
+      active: false,
+    }));
+    await assertFails(updateDoc(doc(coachA, 'coach_profiles', 'coach-a'), {
+      bookingEnabled: false,
+    }));
+    await assertFails(updateDoc(doc(coachA, 'coach_profiles', 'coach-a'), {
+      schemaVersion: 3,
+    }));
+    await assertFails(updateDoc(doc(coachB, 'coach_profiles', 'coach-a'), {
+      bio: 'Foreign update', updatedAt: when(), updatedBy: 'coach-b',
+    }));
+    await assertFails(updateDoc(doc(studentA, 'coach_profiles', 'coach-a'), {
+      bio: 'Student update', updatedAt: when(), updatedBy: 'student-a',
+    }));
+  });
+
+  await t.test('discovery query returns only active matching booking-enabled Coaches', async () => {
+    await seedDiscoveryProfiles();
+    const result = await getDocs(discoveryQuery());
+    assert.deepEqual(result.docs.map((item) => item.id), ['coach-a']);
+  });
+
+  await t.test('users role metadata does not authorize coach profile edits', async () => {
+    await seed('users/metadata-coach', { uid: 'metadata-coach', role: 'coach' });
+    await seed('coach_profiles/metadata-coach', coachProfile({
+      createdBy: 'provisioner-a', updatedBy: 'provisioner-a',
+    }));
+    await assertFails(updateDoc(doc(claimlessContext('metadata-coach'), 'coach_profiles', 'metadata-coach'), {
+      bio: 'Unauthorized', updatedAt: when(), updatedBy: 'metadata-coach',
+    }));
+  });
+
+  await t.test('legacy scalar coach claim remains compatible with profile editing', async () => {
+    await seed('coach_profiles/legacy-coach', coachProfile());
+    await assertSucceeds(updateDoc(doc(legacyCoachContext('legacy-coach'), 'coach_profiles', 'legacy-coach'), {
+      bio: 'Legacy compatible', updatedAt: when(), updatedBy: 'legacy-coach',
+    }));
+  });
+});

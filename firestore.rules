@@ -35,6 +35,18 @@ service cloud.firestore {
       return canManageCoaching();
     }
 
+    function canEditOwnCoachProfile(coachId) {
+      return canManageCoaching() && request.auth.uid == coachId;
+    }
+
+    function validCoachProfileEditorFields(coachId) {
+      return canEditOwnCoachProfile(coachId)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'displayName', 'bio', 'photoUrl', 'specialtyIds', 'updatedAt', 'updatedBy'
+        ])
+        && request.resource.data.updatedBy == request.auth.uid;
+    }
+
     function isOwner(userId) {
       return signedIn() && request.auth.uid == userId;
     }
@@ -499,9 +511,17 @@ service cloud.firestore {
       allow delete: if coachOwnsStudentRecord(resource.data);
     }
 
+    // Public discovery metadata only. Creation and system visibility flags are
+    // trusted provisioning concerns; no Flutter client can create this record.
+    match /coach_profiles/{coachId} {
+      allow read: if signedIn();
+      allow create, delete: if false;
+      allow update: if validCoachProfileEditorFields(coachId);
+    }
+
     match /sports/{sportId} {
       allow read: if signedIn();
-      allow write: if isCoach();
+      allow write: if false;
     }
 
     match /packages/{packageId} {

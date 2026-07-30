@@ -16,6 +16,15 @@
         { "fieldPath": "studentId", "order": "ASCENDING" },
         { "fieldPath": "startTime", "order": "DESCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "coach_profiles",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "specialtyIds", "arrayConfig": "CONTAINS" },
+        { "fieldPath": "active", "order": "ASCENDING" },
+        { "fieldPath": "bookingEnabled", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": []
