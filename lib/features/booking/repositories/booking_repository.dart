@@ -230,31 +230,53 @@ class BookingRepository {
     }
 
     final bookingReference = _bookings.doc(bookingId);
+
     await _firestore.runTransaction((transaction) async {
       final booking = await transaction.get(bookingReference);
-      final data = booking.data() ?? const <String, dynamic>{};
-      final scheduledAt = (data['scheduledAt'] as Timestamp?)?.toDate();
+
+      if (!booking.exists) {
+        throw StateError('İptal edilecek rezervasyon bulunamadı.');
+      }
+
+      final data = booking.data();
+      if (data == null) {
+        throw StateError('Rezervasyon verisi okunamadı.');
+      }
+
+      final scheduledAtValue = data['scheduledAt'];
+      final studentId = data['studentId'] as String? ?? '';
       final coachId = data['coachId'] as String? ?? '';
-      final slotsToDelete = scheduledAt != null && coachId.isNotEmpty
-          ? await _deleteSlots(
-              transaction,
-              _slotReferences(
-                studentId: data['studentId'] as String? ?? '',
-                coachId: coachId,
-                scheduledAt: scheduledAt,
-              ),
-              bookingId,
-            )
-          : <DocumentReference<Map<String, dynamic>>>[];
+
+      if (scheduledAtValue is! Timestamp ||
+          studentId.trim().isEmpty ||
+          coachId.trim().isEmpty) {
+        throw StateError('Rezervasyon slot bilgileri eksik veya geçersiz.');
+      }
+
+      final scheduledAt = scheduledAtValue.toDate();
+
+      final slotsToDelete = await _deleteSlots(
+        transaction,
+        _slotReferences(
+          studentId: studentId,
+          coachId: coachId,
+          scheduledAt: scheduledAt,
+        ),
+        bookingId,
+      );
+
       transaction.update(bookingReference, {
         'status': 'cancelled',
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
       for (final reference in slotsToDelete) {
         transaction.delete(reference);
       }
     });
   }
+
+
 
   DateTime _nextOccurrence(
     AvailabilityModel slot,
@@ -364,12 +386,23 @@ class BookingRepository {
     String bookingId,
   ) async {
     final slotsToDelete = <DocumentReference<Map<String, dynamic>>>[];
+
     for (final reference in references) {
       final slot = await transaction.get(reference);
-      if (slot.exists && slot.data()?['bookingId'] == bookingId) {
-        slotsToDelete.add(reference);
+      final slotData = slot.data();
+
+      if (!slot.exists || slotData == null) {
+        throw StateError('Rezervasyona ait slotlardan biri bulunamadı. İptal işlemi durduruldu.');
       }
+
+      if (slotData['bookingId'] != bookingId) {
+        throw StateError('Rezervasyon slot bütünlüğü doğrulanamadı. İptal işlemi durduruldu.');
+      }
+
+      slotsToDelete.add(reference);
     }
+
     return slotsToDelete;
   }
+
 }

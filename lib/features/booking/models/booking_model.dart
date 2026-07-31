@@ -4,6 +4,7 @@ class BookingModel {
   const BookingModel({
     required this.id,
     required this.studentId,
+    required this.coachId,
     required this.sportName,
     required this.packageName,
     required this.scheduledAt,
@@ -15,6 +16,7 @@ class BookingModel {
 
   final String id;
   final String studentId;
+  final String coachId;
   final String sportName;
   final String packageName;
   final DateTime scheduledAt;
@@ -32,6 +34,7 @@ class BookingModel {
     return BookingModel(
       id: document.id,
       studentId: data['studentId'] as String? ?? '',
+      coachId: data['coachId'] as String? ?? '',
       sportName: data['sportName'] as String? ?? '',
       packageName: data['packageName'] as String? ?? '',
       scheduledAt: scheduledAt is Timestamp
