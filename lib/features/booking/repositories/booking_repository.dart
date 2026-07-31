@@ -1,5 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+import '../../../core/booking/booking_slot_blocks.dart';
+import '../../../core/config/lesson_duration.dart';
 import '../../availability/models/availability_model.dart';
 import '../models/booking_model.dart';
 
@@ -74,15 +76,30 @@ class BookingRepository {
     }
 
     final bookingReference = _bookings.doc();
-    final slotReference = _bookingSlots.doc(slotId(scheduledAt));
+    final profileReference = _firestore
+        .collection('student_profiles')
+        .doc(studentId);
     await _firestore.runTransaction((transaction) async {
-      if ((await transaction.get(slotReference)).exists) {
+      final profile = await transaction.get(profileReference);
+      final profileData = profile.data();
+      final coachId = profileData?['coachId'] as String?;
+      if (!profile.exists ||
+          profileData?['status'] != 'active' ||
+          coachId == null ||
+          coachId.trim().isEmpty) {
         throw StateError(
-          'Bu tarih ve saat baska bir ogrenci tarafindan secildi.',
+          'Rezervasyon için aktif bir coach ataması gerekli. Lütfen coachunuzla iletişime geçin.',
         );
       }
+      final slotReferences = _slotReferences(
+        studentId: studentId,
+        coachId: coachId,
+        scheduledAt: scheduledAt,
+      );
+      await _assertSlotsFree(transaction, slotReferences, bookingReference.id);
       transaction.set(bookingReference, {
         'studentId': studentId,
+        'coachId': coachId,
         'sportName': sportName,
         'packageName': packageName,
         'scheduledAt': Timestamp.fromDate(scheduledAt),
@@ -91,13 +108,14 @@ class BookingRepository {
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      transaction.set(
-        slotReference,
-        _slotData(
-          bookingId: bookingReference.id,
-          studentId: studentId,
-          scheduledAt: scheduledAt,
-        ),
+      _writeSlots(
+        transaction,
+        slotReferences,
+        bookingId: bookingReference.id,
+        studentId: studentId,
+        coachId: coachId,
+        scheduledAt: scheduledAt,
+        status: 'pending',
       );
     });
   }
@@ -146,23 +164,38 @@ class BookingRepository {
         .toList(growable: false);
     if (datesToCreate.isEmpty) return 0;
 
+    final profileReference = _firestore
+        .collection('student_profiles')
+        .doc(studentId);
     await _firestore.runTransaction((transaction) async {
-      final slotReferences = {
-        for (final scheduledAt in datesToCreate)
-          slotId(scheduledAt): _bookingSlots.doc(slotId(scheduledAt)),
-      };
-      for (final reference in slotReferences.values) {
-        if ((await transaction.get(reference)).exists) {
-          throw StateError(
-            'Sectigin gun ve saatlerden biri baska bir ogrenci tarafindan rezerve edildi. Lutfen farkli bir saat sec.',
-          );
-        }
+      final profile = await transaction.get(profileReference);
+      final profileData = profile.data();
+      final coachId = profileData?['coachId'] as String?;
+      if (!profile.exists ||
+          profileData?['status'] != 'active' ||
+          coachId == null ||
+          coachId.trim().isEmpty) {
+        throw StateError(
+          'Rezervasyon için aktif bir coach ataması gerekli. Lütfen coachunuzla iletişime geçin.',
+        );
       }
+      final slotReferences = <DocumentReference<Map<String, dynamic>>>[];
+      for (final scheduledAt in datesToCreate) {
+        slotReferences.addAll(
+          _slotReferences(
+            studentId: studentId,
+            coachId: coachId,
+            scheduledAt: scheduledAt,
+          ),
+        );
+      }
+      await _assertSlotsFree(transaction, slotReferences, '');
 
       for (final scheduledAt in datesToCreate) {
         final bookingReference = _bookings.doc();
         transaction.set(bookingReference, {
           'studentId': studentId,
+          'coachId': coachId,
           'sportName': sportName,
           'packageName': packageName,
           'scheduledAt': Timestamp.fromDate(scheduledAt),
@@ -173,13 +206,18 @@ class BookingRepository {
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
-        transaction.set(
-          slotReferences[slotId(scheduledAt)]!,
-          _slotData(
-            bookingId: bookingReference.id,
+        _writeSlots(
+          transaction,
+          _slotReferences(
             studentId: studentId,
+            coachId: coachId,
             scheduledAt: scheduledAt,
           ),
+          bookingId: bookingReference.id,
+          studentId: studentId,
+          coachId: coachId,
+          scheduledAt: scheduledAt,
+          status: 'pending',
         );
       }
     });
@@ -194,14 +232,26 @@ class BookingRepository {
     final bookingReference = _bookings.doc(bookingId);
     await _firestore.runTransaction((transaction) async {
       final booking = await transaction.get(bookingReference);
-      final scheduledAt = (booking.data()?['scheduledAt'] as Timestamp?)
-          ?.toDate();
+      final data = booking.data() ?? const <String, dynamic>{};
+      final scheduledAt = (data['scheduledAt'] as Timestamp?)?.toDate();
+      final coachId = data['coachId'] as String? ?? '';
+      final slotsToDelete = scheduledAt != null && coachId.isNotEmpty
+          ? await _deleteSlots(
+              transaction,
+              _slotReferences(
+                studentId: data['studentId'] as String? ?? '',
+                coachId: coachId,
+                scheduledAt: scheduledAt,
+              ),
+              bookingId,
+            )
+          : <DocumentReference<Map<String, dynamic>>>[];
       transaction.update(bookingReference, {
         'status': 'cancelled',
         'updatedAt': FieldValue.serverTimestamp(),
       });
-      if (scheduledAt != null) {
-        transaction.delete(_bookingSlots.doc(slotId(scheduledAt)));
+      for (final reference in slotsToDelete) {
+        transaction.delete(reference);
       }
     });
   }
@@ -244,23 +294,82 @@ class BookingRepository {
     return dates;
   }
 
-  static String slotId(DateTime scheduledAt) =>
-      'slot_${scheduledAt.millisecondsSinceEpoch}';
-
   static String weeklyTimeKey({
     required int dayOfWeek,
     required String startTime,
   }) => '$dayOfWeek|$startTime';
 
-  static Map<String, dynamic> _slotData({
+  List<DocumentReference<Map<String, dynamic>>> _slotReferences({
+    required String studentId,
+    required String coachId,
+    required DateTime scheduledAt,
+  }) => [
+    for (final block in calculateBookingSlotBlocks(
+      startTime: scheduledAt,
+      endTime: scheduledAt.add(lessonDuration),
+    )) ...[
+      _bookingSlots.doc(coachSlotDocumentId(coachId, block)),
+      _bookingSlots.doc(studentSlotDocumentId(studentId, block)),
+    ],
+  ];
+
+  Future<void> _assertSlotsFree(
+    Transaction transaction,
+    Iterable<DocumentReference<Map<String, dynamic>>> references,
+    String bookingId,
+  ) async {
+    for (final reference in references) {
+      final slot = await transaction.get(reference);
+      if (slot.exists && slot.data()?['bookingId'] != bookingId) {
+        throw StateError('Seçilen zaman aralığı başka bir dersle çakışıyor.');
+      }
+    }
+  }
+
+  void _writeSlots(
+    Transaction transaction,
+    Iterable<DocumentReference<Map<String, dynamic>>> references, {
     required String bookingId,
     required String studentId,
+    required String coachId,
     required DateTime scheduledAt,
-  }) => {
-    'bookingId': bookingId,
-    'studentId': studentId,
-    'scheduledAt': Timestamp.fromDate(scheduledAt),
-    'status': 'pending',
-    'createdAt': FieldValue.serverTimestamp(),
-  };
+    required String status,
+  }) {
+    for (final reference in references) {
+      final coachResource = reference.id.startsWith('coach_');
+      final blockStart = DateTime.fromMillisecondsSinceEpoch(
+        int.parse(reference.id.split('_').last),
+      );
+      transaction.set(
+        reference,
+        bookingSlotData(
+          resourceType: coachResource ? 'coach' : 'student',
+          resourceId: coachResource ? coachId : studentId,
+          bookingId: bookingId,
+          lessonId: '',
+          coachId: coachId,
+          studentId: studentId,
+          blockStart: blockStart,
+          scheduledAt: scheduledAt,
+          endTime: scheduledAt.add(lessonDuration),
+          status: status,
+        ),
+      );
+    }
+  }
+
+  Future<List<DocumentReference<Map<String, dynamic>>>> _deleteSlots(
+    Transaction transaction,
+    Iterable<DocumentReference<Map<String, dynamic>>> references,
+    String bookingId,
+  ) async {
+    final slotsToDelete = <DocumentReference<Map<String, dynamic>>>[];
+    for (final reference in references) {
+      final slot = await transaction.get(reference);
+      if (slot.exists && slot.data()?['bookingId'] == bookingId) {
+        slotsToDelete.add(reference);
+      }
+    }
+    return slotsToDelete;
+  }
 }
