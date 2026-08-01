@@ -2,6 +2,7 @@
   "private": true,
   "scripts": {
     "test": "firebase emulators:exec --only firestore \"node --test test/firestore/users_role.rules.test.js\"",
+    "test:coach-repositories": "firebase emulators:exec --config test/firestore/firebase.repository-tests.json --project bodyhub-repository-tests --only firestore \"cd ../bodyhub_coach && flutter test --dart-define=RUN_FIRESTORE_EMULATOR_TESTS=true --dart-define=FIRESTORE_EMULATOR_HOST=10.0.2.2 --dart-define=FIRESTORE_EMULATOR_PORT=8080 integration_test\"",
     "test:coach-ownership-migration": "firebase emulators:exec --only firestore \"node --test test/migrations/legacy_coach_ownership_migration.test.js\"",
     "migrate:legacy-coach-ownership": "node tool/migrate_legacy_coach_ownership.js",
     "test:exploit": "set EXPECT_ROLE_EXPLOIT=true&& firebase emulators:exec --only firestore \"node --test test/firestore/users_role.rules.test.js\""

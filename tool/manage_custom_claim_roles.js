@@ -9,6 +9,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const admin = require('firebase-admin');
+const { cert, initializeApp } = require('firebase-admin/app');
 const { FieldValue, getFirestore } = require('firebase-admin/firestore');
 const { getAuth } = require('firebase-admin/auth');
 
@@ -109,7 +110,7 @@ function createAdminContext(options, dependencies = {}) {
       throw new Error('--emulator cannot use the production project ID.');
     }
     if (options.serviceAccount) throw new Error('--emulator must not use a production service account.');
-    const app = sdk.initializeApp({ projectId: options.projectId }, `claim-role-emulator-${crypto.randomUUID()}`);
+    const app = initializeApp({ projectId: options.projectId }, `claim-role-emulator-${crypto.randomUUID()}`);
     return { app, auth: getAuth(app), db: getFirestore(app), environment: 'emulator' };
   }
 
@@ -121,8 +122,8 @@ function createAdminContext(options, dependencies = {}) {
   if (credentials.project_id !== options.projectId) {
     throw new Error('Service account project_id must match --project-id.');
   }
-  const app = sdk.initializeApp({
-    credential: sdk.credential.cert(credentials),
+  const app = initializeApp({
+    credential: cert(credentials),
     projectId: options.projectId,
   }, `claim-role-production-${crypto.randomUUID()}`);
   return { app, auth: getAuth(app), db: getFirestore(app), environment: 'production' };
