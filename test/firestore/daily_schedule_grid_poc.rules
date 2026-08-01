@@ -1,0 +1,122 @@
+rules_version = '2';
+
+// Deliberately isolated Emulator proof of concept. It is not the production
+// rules file and does not open any BODY HUB V2 collection.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isCoach() {
+      return request.auth != null
+        && request.auth.token.roles is map
+        && request.auth.token.roles.coach == true;
+    }
+
+    function validCoordinate(data) {
+      return data.scheduleTimeZone == 'Europe/Istanbul'
+        && data.dayKey.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.startSlotIndex is int
+        && data.startSlotIndex >= 54
+        && data.startSlotIndex <= 115
+        && data.durationBlocks == 5;
+    }
+
+    function sessionMatchesSchedules(sessionId, data) {
+      return existsAfter(/databases/$(database)/documents/poc_coach_schedules/$(data.coachId)/days/$(data.dayKey))
+        && existsAfter(/databases/$(database)/documents/poc_student_schedules/$(data.studentId)/days/$(data.dayKey))
+        && getAfter(/databases/$(database)/documents/poc_coach_schedules/$(data.coachId)/days/$(data.dayKey)).data.ownerId == data.coachId
+        && getAfter(/databases/$(database)/documents/poc_student_schedules/$(data.studentId)/days/$(data.dayKey)).data.ownerId == data.studentId
+        && getAfter(/databases/$(database)/documents/poc_coach_schedules/$(data.coachId)/days/$(data.dayKey)).data.dayKey == data.dayKey
+        && getAfter(/databases/$(database)/documents/poc_student_schedules/$(data.studentId)/days/$(data.dayKey)).data.dayKey == data.dayKey
+        && getAfter(/databases/$(database)/documents/poc_coach_schedules/$(data.coachId)/days/$(data.dayKey)).data.sessionId == sessionId
+        && getAfter(/databases/$(database)/documents/poc_student_schedules/$(data.studentId)/days/$(data.dayKey)).data.sessionId == sessionId;
+    }
+
+    // This proves the strongest generic map-diff check available without
+    // converting an integer slot index into a map key.
+    function validScheduleWrite(sessionId, ownerId, before, after, session) {
+      return after.ownerId == ownerId
+        && after.dayKey == session.dayKey
+        && after.sessionId == sessionId
+        && after.scheduleTimeZone == session.scheduleTimeZone
+        && after.slots.diff(before.slots).affectedKeys().size() == 5
+        && after.slots.diff(before.slots).affectedKeys().hasAll(session.slotKeys)
+        && session.slotKeys.size() == 5
+        && session.slotKeys[0] != session.slotKeys[1]
+        && session.slotKeys[0] != session.slotKeys[2]
+        && session.slotKeys[0] != session.slotKeys[3]
+        && session.slotKeys[0] != session.slotKeys[4]
+        && session.slotKeys[1] != session.slotKeys[2]
+        && session.slotKeys[1] != session.slotKeys[3]
+        && session.slotKeys[1] != session.slotKeys[4]
+        && session.slotKeys[2] != session.slotKeys[3]
+        && session.slotKeys[2] != session.slotKeys[4]
+        && session.slotKeys[3] != session.slotKeys[4]
+        && after.slots[session.slotKeys[0]] == sessionId
+        && after.slots[session.slotKeys[1]] == sessionId
+        && after.slots[session.slotKeys[2]] == sessionId
+        && after.slots[session.slotKeys[3]] == sessionId
+        && after.slots[session.slotKeys[4]] == sessionId;
+    }
+
+    function requestApprovedFor(session) {
+      return existsAfter(/databases/$(database)/documents/poc_booking_requests/$(session.bookingRequestId))
+        && getAfter(/databases/$(database)/documents/poc_booking_requests/$(session.bookingRequestId)).data.status == 'approved'
+        && getAfter(/databases/$(database)/documents/poc_booking_requests/$(session.bookingRequestId)).data.studentId == session.studentId
+        && getAfter(/databases/$(database)/documents/poc_booking_requests/$(session.bookingRequestId)).data.coachId == session.coachId
+        && getAfter(/databases/$(database)/documents/poc_booking_requests/$(session.bookingRequestId)).data.dayKey == session.dayKey
+        && getAfter(/databases/$(database)/documents/poc_booking_requests/$(session.bookingRequestId)).data.startSlotIndex == session.startSlotIndex;
+    }
+
+    match /poc_booking_requests/{requestId} {
+      allow update: if isCoach()
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'approved'
+        && request.resource.data.coachId == request.auth.uid;
+      allow get: if isCoach() && resource.data.coachId == request.auth.uid;
+      allow list, create, delete: if false;
+    }
+
+    match /poc_sessions/{sessionId} {
+      allow create: if isCoach()
+        && request.resource.data.coachId == request.auth.uid
+        && validCoordinate(request.resource.data)
+        && request.resource.data.slotKeys.size() == 5
+        && requestApprovedFor(request.resource.data)
+        && sessionMatchesSchedules(sessionId, request.resource.data);
+      allow get: if isCoach() && resource.data.coachId == request.auth.uid;
+      allow list, update, delete: if false;
+    }
+
+    match /poc_coach_schedules/{coachId}/days/{dayKey} {
+      allow update: if isCoach()
+        && coachId == request.auth.uid
+        && existsAfter(/databases/$(database)/documents/poc_sessions/$(request.resource.data.sessionId))
+        && validScheduleWrite(
+          request.resource.data.sessionId,
+          coachId,
+          resource.data,
+          request.resource.data,
+          getAfter(/databases/$(database)/documents/poc_sessions/$(request.resource.data.sessionId)).data
+        );
+      allow get: if isCoach() && coachId == request.auth.uid;
+      allow list, create, delete: if false;
+    }
+
+    match /poc_student_schedules/{studentId}/days/{dayKey} {
+      allow update: if isCoach()
+        && existsAfter(/databases/$(database)/documents/poc_sessions/$(request.resource.data.sessionId))
+        && getAfter(/databases/$(database)/documents/poc_sessions/$(request.resource.data.sessionId)).data.studentId == studentId
+        && getAfter(/databases/$(database)/documents/poc_sessions/$(request.resource.data.sessionId)).data.coachId == request.auth.uid
+        && validScheduleWrite(
+          request.resource.data.sessionId,
+          studentId,
+          resource.data,
+          request.resource.data,
+          getAfter(/databases/$(database)/documents/poc_sessions/$(request.resource.data.sessionId)).data
+        );
+      // POC transaction reads the pre-approval empty day document. Production
+      // read scoping is deliberately outside this isolated feasibility file.
+      allow get: if isCoach();
+      allow list, create, delete: if false;
+    }
+  }
+}

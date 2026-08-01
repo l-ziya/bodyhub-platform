@@ -1,0 +1,77 @@
+rules_version = '2';
+
+// Isolated D-8 feasibility rules; this file does not alter production Rules.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isCoach() {
+      return request.auth != null
+        && request.auth.token.roles is map
+        && request.auth.token.roles.coach == true;
+    }
+
+    function requestPath(requestId) {
+      return /databases/$(database)/documents/poc_d8_requests/$(requestId);
+    }
+
+    function sessionPath(sessionId) {
+      return /databases/$(database)/documents/poc_d8_sessions/$(sessionId);
+    }
+
+    function rosterPath(coachId, studentId) {
+      return /databases/$(database)/documents/poc_d8_coaches/$(coachId)/students/$(studentId);
+    }
+
+    match /poc_d8_requests/{requestId} {
+      allow read: if isCoach() && resource.data.coachId == request.auth.uid;
+      allow update: if isCoach()
+        && resource.data.coachId == request.auth.uid
+        && resource.data.status == 'pending'
+        && request.resource.data.status == 'approved'
+        && request.resource.data.sessionId == requestId
+        && existsAfter(sessionPath(requestId));
+      allow create, delete: if false;
+    }
+
+    match /poc_d8_coaches/{coachId}/students/{studentId} {
+      allow create: if isCoach()
+        && request.auth.uid == coachId
+        && request.resource.data.keys().hasOnly([
+          'coachId', 'studentId', 'bookingRequestId', 'createdAt', 'createdBy', 'schemaVersion'
+        ])
+        && request.resource.data.coachId == coachId
+        && request.resource.data.studentId == studentId
+        && request.resource.data.createdBy == coachId
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.schemaVersion == 2
+        && exists(requestPath(request.resource.data.bookingRequestId))
+        && get(requestPath(request.resource.data.bookingRequestId)).data.status == 'pending'
+        && get(requestPath(request.resource.data.bookingRequestId)).data.coachId == coachId
+        && get(requestPath(request.resource.data.bookingRequestId)).data.studentId == studentId;
+      allow read, update, delete: if false;
+    }
+
+    match /poc_d8_entitlements/{studentId} {
+      allow update: if isCoach()
+        && resource.data.studentId == studentId
+        && resource.data.remainingSessions > 0
+        && request.resource.data.remainingSessions == resource.data.remainingSessions - 1
+        && request.resource.data.updatedBy == request.auth.uid
+        && request.resource.data.updatedAt == request.time
+        && existsAfter(sessionPath(request.resource.data.sessionId));
+      allow read, create, delete: if false;
+    }
+
+    match /poc_d8_sessions/{sessionId} {
+      allow create: if isCoach()
+        && request.resource.data.sessionId == sessionId
+        && request.resource.data.coachId == request.auth.uid
+        && existsAfter(rosterPath(request.resource.data.coachId, request.resource.data.studentId))
+        && existsAfter(/databases/$(database)/documents/poc_d8_entitlements/$(request.resource.data.studentId))
+        && getAfter(/databases/$(database)/documents/poc_d8_entitlements/$(request.resource.data.studentId)).data.remainingSessions
+          == get(/databases/$(database)/documents/poc_d8_entitlements/$(request.resource.data.studentId)).data.remainingSessions - 1
+        && getAfter(/databases/$(database)/documents/poc_d8_entitlements/$(request.resource.data.studentId)).data.sessionId
+          == sessionId;
+      allow read, update, delete: if false;
+    }
+  }
+}

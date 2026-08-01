@@ -1,0 +1,10 @@
+rules_version = '2';
+
+// Isolated template immutability proof; production rules remain unchanged.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /schedule_slot_templates/{slotId} {
+      allow read, write: if false;
+    }
+  }
+}

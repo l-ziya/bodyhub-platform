@@ -1,0 +1,130 @@
+rules_version = '2';
+
+// Isolated D-5.9 feasibility rules. They do not alter production Rules.
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isCoach() {
+      return request.auth != null
+        && request.auth.token.roles is map
+        && request.auth.token.roles.coach == true;
+    }
+
+    function validDayKey(dayKey) {
+      return dayKey is string
+        && dayKey.matches('^[1-9][0-9]{3}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])$');
+    }
+
+    function activeTemplate(slotId) {
+      let template = get(/databases/$(database)/documents/poc_d59_slot_templates/$(slotId));
+      return template.data.slotId == slotId
+        && template.data.active == true
+        && template.data.schemaVersion == 2;
+    }
+
+    function activeAvailability(data) {
+      let availability = get(
+        /databases/$(database)/documents/poc_d59_coach_availability/$(data.coachId)
+        /days/$(data.dayKey)/slots/$(data.slotId)
+      );
+      return availability.data.coachId == data.coachId
+        && availability.data.dayKey == data.dayKey
+        && availability.data.slotId == data.slotId
+        && availability.data.active == true;
+    }
+
+    function approvalMatches(sessionId, data) {
+      let bookingRequest = getAfter(
+        /databases/$(database)/documents/poc_d59_booking_requests/$(data.bookingRequestId)
+      );
+      let coachSlot = getAfter(
+        /databases/$(database)/documents/poc_d59_coach_slots/$(data.coachId)
+        /days/$(data.dayKey)/slots/$(data.slotId)
+      );
+      let studentSlot = getAfter(
+        /databases/$(database)/documents/poc_d59_student_slots/$(data.studentId)
+        /days/$(data.dayKey)/slots/$(data.slotId)
+      );
+      return bookingRequest.data.status == 'approved'
+        && bookingRequest.data.sessionId == sessionId
+        && bookingRequest.data.studentId == data.studentId
+        && bookingRequest.data.coachId == data.coachId
+        && bookingRequest.data.dayKey == data.dayKey
+        && bookingRequest.data.slotId == data.slotId
+        && coachSlot.data.state == 'reserved'
+        && coachSlot.data.sessionId == sessionId
+        && coachSlot.data.coachId == data.coachId
+        && coachSlot.data.dayKey == data.dayKey
+        && coachSlot.data.slotId == data.slotId
+        && studentSlot.data.sessionId == sessionId
+        && studentSlot.data.studentId == data.studentId
+        && studentSlot.data.coachId == data.coachId
+        && studentSlot.data.dayKey == data.dayKey
+        && studentSlot.data.slotId == data.slotId;
+    }
+
+    function validSession(sessionId, data) {
+      return data.sessionId == sessionId
+        && data.status == 'scheduled'
+        && data.scheduleTimeZone == 'Europe/Istanbul'
+        && validDayKey(data.dayKey)
+        && activeTemplate(data.slotId)
+        && activeAvailability(data)
+        && approvalMatches(sessionId, data);
+    }
+
+    match /poc_d59_slot_templates/{slotId} {
+      allow read, write: if false;
+    }
+
+    match /poc_d59_coach_availability/{coachId}/days/{dayKey}/slots/{slotId} {
+      allow read, write: if false;
+    }
+
+    match /poc_d59_booking_requests/{requestId} {
+      allow get: if isCoach() && resource.data.coachId == request.auth.uid;
+      allow update: if isCoach()
+        && resource.data.status == 'pending'
+        && resource.data.coachId == request.auth.uid
+        && request.resource.data.status == 'approved'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'sessionId'])
+        && existsAfter(/databases/$(database)/documents/poc_d59_sessions/$(request.resource.data.sessionId));
+      allow list, create, delete: if false;
+    }
+
+    match /poc_d59_sessions/{sessionId} {
+      allow get: if isCoach() && resource.data.coachId == request.auth.uid;
+      allow create: if isCoach()
+        && request.resource.data.coachId == request.auth.uid
+        && validSession(sessionId, request.resource.data);
+      allow list, update, delete: if false;
+    }
+
+    match /poc_d59_coach_slots/{coachId}/days/{dayKey}/slots/{slotId} {
+      allow get: if isCoach() && coachId == request.auth.uid;
+      allow update: if isCoach()
+        && coachId == request.auth.uid
+        && resource.data.state == 'available'
+        && request.resource.data.state == 'reserved'
+        && request.resource.data.coachId == coachId
+        && request.resource.data.dayKey == dayKey
+        && request.resource.data.slotId == slotId
+        && existsAfter(/databases/$(database)/documents/poc_d59_sessions/$(request.resource.data.sessionId))
+        && validSession(request.resource.data.sessionId,
+          getAfter(/databases/$(database)/documents/poc_d59_sessions/$(request.resource.data.sessionId)).data);
+      allow list, create, delete: if false;
+    }
+
+    match /poc_d59_student_slots/{studentId}/days/{dayKey}/slots/{slotId} {
+      allow get: if isCoach();
+      allow create: if isCoach()
+        && request.resource.data.studentId == studentId
+        && request.resource.data.coachId == request.auth.uid
+        && request.resource.data.dayKey == dayKey
+        && request.resource.data.slotId == slotId
+        && existsAfter(/databases/$(database)/documents/poc_d59_sessions/$(request.resource.data.sessionId))
+        && validSession(request.resource.data.sessionId,
+          getAfter(/databases/$(database)/documents/poc_d59_sessions/$(request.resource.data.sessionId)).data);
+      allow list, update, delete: if false;
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "firestore": {
+    "rules": "slot_template_immutability_poc.rules"
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    }
+  }
+}

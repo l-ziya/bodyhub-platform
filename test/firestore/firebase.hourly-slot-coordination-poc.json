@@ -1,0 +1,10 @@
+{
+  "firestore": {
+    "rules": "hourly_slot_coordination_poc.rules"
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    }
+  }
+}

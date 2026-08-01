@@ -1,0 +1,10 @@
+{
+  "firestore": {
+    "rules": "daily_schedule_grid_poc.rules"
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    }
+  }
+}

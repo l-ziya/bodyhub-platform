@@ -1,0 +1,4 @@
+{
+  "firestore": { "rules": "roster_entitlement_approval_poc.rules" },
+  "emulators": { "firestore": { "port": 8080 } }
+}

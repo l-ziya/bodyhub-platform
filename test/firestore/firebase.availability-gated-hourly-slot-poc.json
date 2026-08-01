@@ -1,0 +1,10 @@
+{
+  "firestore": {
+    "rules": "availability_gated_hourly_slot_poc.rules"
+  },
+  "emulators": {
+    "firestore": {
+      "port": 8080
+    }
+  }
+}
