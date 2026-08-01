@@ -45,9 +45,9 @@ void main() {
       repository = BookingRepository(firestore: harness.firestore);
     });
 
-    testWidgets(
+    test(
       'uses the active profile Coach for booking and both slot owners',
-      (tester) async {
+      () async {
         await harness.seed({
           'student_profiles/student-a': {
             'status': 'active',
@@ -87,9 +87,9 @@ void main() {
       },
     );
 
-    testWidgets(
+    test(
       'rejects missing or inactive profile ownership without writes',
-      (tester) async {
+      () async {
         await harness.seed({
           'student_profiles/student-a': {
             'status': 'pending',
@@ -117,7 +117,7 @@ void main() {
       },
     );
 
-    testWidgets('collision rolls back a second legacy booking', (tester) async {
+    test('collision rolls back a second legacy booking', () async {
       await harness.seed({
         'student_profiles/student-a': {
           'status': 'active',
@@ -149,9 +149,7 @@ void main() {
       );
     });
 
-    testWidgets('cancellation removes only its deterministic legacy slots', (
-      tester,
-    ) async {
+    test('cancellation removes only its deterministic legacy slots', () async {
       await harness.seed({
         'student_profiles/student-a': {
           'status': 'active',

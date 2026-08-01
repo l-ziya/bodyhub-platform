@@ -79,10 +79,12 @@ class BookingRepository {
     final profileReference = _firestore
         .collection('student_profiles')
         .doc(studentId);
-    await _firestore.runTransaction((transaction) async {
+
+    final created = await _firestore.runTransaction<bool>((transaction) async {
       final profile = await transaction.get(profileReference);
       final profileData = profile.data();
       final coachId = profileData?['coachId'] as String?;
+
       if (!profile.exists ||
           profileData?['status'] != 'active' ||
           coachId == null ||
@@ -91,12 +93,20 @@ class BookingRepository {
           'Rezervasyon için aktif bir coach ataması gerekli. Lütfen coachunuzla iletişime geçin.',
         );
       }
+
       final slotReferences = _slotReferences(
         studentId: studentId,
         coachId: coachId,
         scheduledAt: scheduledAt,
       );
-      await _assertSlotsFree(transaction, slotReferences, bookingReference.id);
+
+      final slotsAreFree = await _slotsAreFree(
+        transaction,
+        slotReferences,
+        bookingReference.id,
+      );
+      if (!slotsAreFree) return false;
+
       transaction.set(bookingReference, {
         'studentId': studentId,
         'coachId': coachId,
@@ -108,6 +118,7 @@ class BookingRepository {
         'createdAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
+
       _writeSlots(
         transaction,
         slotReferences,
@@ -117,7 +128,13 @@ class BookingRepository {
         scheduledAt: scheduledAt,
         status: 'pending',
       );
+
+      return true;
     });
+
+    if (!created) {
+      throw StateError('Seçilen zaman aralığı başka bir dersle çakışıyor.');
+    }
   }
 
   Future<int> createWeeklyReservations({
@@ -134,6 +151,7 @@ class BookingRepository {
     final existingSnapshot = await _bookings
         .where('studentId', isEqualTo: studentId)
         .get();
+
     final existingBookings = existingSnapshot.docs
         .map(BookingModel.fromFirestore)
         .where(
@@ -147,6 +165,7 @@ class BookingRepository {
     final now = DateTime.now();
     final recurringGroupId =
         '${studentId}_${now.year}${now.month.toString().padLeft(2, '0')}';
+
     final requestedDates = <DateTime>[];
     for (final slot in weeklySlots) {
       requestedDates.addAll(
@@ -155,6 +174,7 @@ class BookingRepository {
             : List.generate(4, (week) => _nextOccurrence(slot, now, week)),
       );
     }
+
     final datesToCreate = requestedDates
         .where(
           (scheduledAt) => !existingBookings.any(
@@ -162,15 +182,18 @@ class BookingRepository {
           ),
         )
         .toList(growable: false);
+
     if (datesToCreate.isEmpty) return 0;
 
     final profileReference = _firestore
         .collection('student_profiles')
         .doc(studentId);
-    await _firestore.runTransaction((transaction) async {
+
+    final created = await _firestore.runTransaction<bool>((transaction) async {
       final profile = await transaction.get(profileReference);
       final profileData = profile.data();
       final coachId = profileData?['coachId'] as String?;
+
       if (!profile.exists ||
           profileData?['status'] != 'active' ||
           coachId == null ||
@@ -179,7 +202,9 @@ class BookingRepository {
           'Rezervasyon için aktif bir coach ataması gerekli. Lütfen coachunuzla iletişime geçin.',
         );
       }
+
       final slotReferences = <DocumentReference<Map<String, dynamic>>>[];
+
       for (final scheduledAt in datesToCreate) {
         slotReferences.addAll(
           _slotReferences(
@@ -189,10 +214,13 @@ class BookingRepository {
           ),
         );
       }
-      await _assertSlotsFree(transaction, slotReferences, '');
+
+      final slotsAreFree = await _slotsAreFree(transaction, slotReferences, '');
+      if (!slotsAreFree) return false;
 
       for (final scheduledAt in datesToCreate) {
         final bookingReference = _bookings.doc();
+
         transaction.set(bookingReference, {
           'studentId': studentId,
           'coachId': coachId,
@@ -206,6 +234,7 @@ class BookingRepository {
           'createdAt': FieldValue.serverTimestamp(),
           'updatedAt': FieldValue.serverTimestamp(),
         });
+
         _writeSlots(
           transaction,
           _slotReferences(
@@ -220,7 +249,14 @@ class BookingRepository {
           status: 'pending',
         );
       }
+
+      return true;
     });
+
+    if (!created) {
+      throw StateError('Seçilen zaman aralıklarından biri dolu.');
+    }
+
     return datesToCreate.length;
   }
 
@@ -233,20 +269,16 @@ class BookingRepository {
 
     await _firestore.runTransaction((transaction) async {
       final booking = await transaction.get(bookingReference);
-
       if (!booking.exists) {
         throw StateError('İptal edilecek rezervasyon bulunamadı.');
       }
-
       final data = booking.data();
       if (data == null) {
         throw StateError('Rezervasyon verisi okunamadı.');
       }
-
       final scheduledAtValue = data['scheduledAt'];
       final studentId = data['studentId'] as String? ?? '';
       final coachId = data['coachId'] as String? ?? '';
-
       if (scheduledAtValue is! Timestamp ||
           studentId.trim().isEmpty ||
           coachId.trim().isEmpty) {
@@ -276,8 +308,6 @@ class BookingRepository {
     });
   }
 
-
-
   DateTime _nextOccurrence(
     AvailabilityModel slot,
     DateTime now,
@@ -287,8 +317,13 @@ class BookingRepository {
     final hour = int.parse(timeParts[0]);
     final minute = int.parse(timeParts[1]);
     final daysUntil = (slot.dayOfWeek - now.weekday + 7) % 7;
+
     var date = DateTime(now.year, now.month, now.day + daysUntil, hour, minute);
-    if (!date.isAfter(now)) date = date.add(const Duration(days: 7));
+
+    if (!date.isAfter(now)) {
+      date = date.add(const Duration(days: 7));
+    }
+
     return date.add(Duration(days: weekOffset * 7));
   }
 
@@ -296,11 +331,14 @@ class BookingRepository {
     final periodStart = now.day == 1
         ? DateTime(now.year, now.month, 1)
         : DateTime(now.year, now.month + 1, 1);
+
     final periodEnd = DateTime(periodStart.year, periodStart.month + 1, 0);
+
     final timeParts = slot.startTime.split(':');
     final hour = int.parse(timeParts[0]);
     final minute = int.parse(timeParts[1]);
     final firstOffset = (slot.dayOfWeek - periodStart.weekday + 7) % 7;
+
     var date = DateTime(
       periodStart.year,
       periodStart.month,
@@ -308,11 +346,17 @@ class BookingRepository {
       hour,
       minute,
     );
+
     final dates = <DateTime>[];
+
     while (!date.isAfter(periodEnd)) {
-      if (date.isAfter(now)) dates.add(date);
+      if (date.isAfter(now)) {
+        dates.add(date);
+      }
+
       date = date.add(const Duration(days: 7));
     }
+
     return dates;
   }
 
@@ -335,17 +379,20 @@ class BookingRepository {
     ],
   ];
 
-  Future<void> _assertSlotsFree(
+  Future<bool> _slotsAreFree(
     Transaction transaction,
     Iterable<DocumentReference<Map<String, dynamic>>> references,
     String bookingId,
   ) async {
     for (final reference in references) {
       final slot = await transaction.get(reference);
+
       if (slot.exists && slot.data()?['bookingId'] != bookingId) {
-        throw StateError('Seçilen zaman aralığı başka bir dersle çakışıyor.');
+        return false;
       }
     }
+
+    return true;
   }
 
   void _writeSlots(
@@ -359,9 +406,11 @@ class BookingRepository {
   }) {
     for (final reference in references) {
       final coachResource = reference.id.startsWith('coach_');
+
       final blockStart = DateTime.fromMillisecondsSinceEpoch(
         int.parse(reference.id.split('_').last),
       );
+
       transaction.set(
         reference,
         bookingSlotData(
@@ -392,11 +441,17 @@ class BookingRepository {
       final slotData = slot.data();
 
       if (!slot.exists || slotData == null) {
-        throw StateError('Rezervasyona ait slotlardan biri bulunamadı. İptal işlemi durduruldu.');
+        throw StateError(
+          'Rezervasyona ait slotlardan biri bulunamadı. '
+          'İptal işlemi durduruldu.',
+        );
       }
 
       if (slotData['bookingId'] != bookingId) {
-        throw StateError('Rezervasyon slot bütünlüğü doğrulanamadı. İptal işlemi durduruldu.');
+        throw StateError(
+          'Rezervasyon slot bütünlüğü doğrulanamadı. '
+          'İptal işlemi durduruldu.',
+        );
       }
 
       slotsToDelete.add(reference);
@@ -404,5 +459,4 @@ class BookingRepository {
 
     return slotsToDelete;
   }
-
 }
